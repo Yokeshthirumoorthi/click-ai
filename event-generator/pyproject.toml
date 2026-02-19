@@ -1,0 +1,10 @@
+[project]
+name = "event-generator"
+version = "1.0.0"
+description = "Fake OTEL event generator for click-ai"
+requires-python = ">=3.12"
+dependencies = [
+    "opentelemetry-sdk==1.23.0",
+    "opentelemetry-exporter-otlp-proto-grpc==1.23.0",
+    "opentelemetry-api==1.23.0",
+]

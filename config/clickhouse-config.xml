@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<clickhouse>
+
+    <!-- Allow connections from anywhere (safe inside Docker) -->
+    <listen_host>0.0.0.0</listen_host>
+
+    <!-- Total server memory limit: 100GB -->
+    <max_server_memory_usage>107374182400</max_server_memory_usage>
+
+    <!-- Background merge threads (for MergeTree inserts) -->
+    <background_pool_size>16</background_pool_size>
+    <background_merges_mutations_concurrency_ratio>2</background_merges_mutations_concurrency_ratio>
+
+    <!-- Compression: LZ4 is fast, zstd saves more space -->
+    <compression>
+        <case>
+            <method>lz4</method>
+        </case>
+    </compression>
+
+    <!-- Logging -->
+    <logger>
+        <level>information</level>
+        <log>/var/log/clickhouse-server/clickhouse-server.log</log>
+        <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
+        <size>500M</size>
+        <count>5</count>
+    </logger>
+
+    <!-- HTTP CORS (needed for Tabix UI) -->
+    <http_options_response>
+        <header>
+            <name>Access-Control-Allow-Origin</name>
+            <value>*</value>
+        </header>
+        <header>
+            <name>Access-Control-Allow-Headers</name>
+            <value>origin, x-requested-with, content-type</value>
+        </header>
+        <header>
+            <name>Access-Control-Allow-Methods</name>
+            <value>POST, GET, OPTIONS</value>
+        </header>
+    </http_options_response>
+
+</clickhouse>

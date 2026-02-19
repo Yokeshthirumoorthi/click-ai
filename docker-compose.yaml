@@ -1,0 +1,76 @@
+services:
+  # ─── ClickHouse Server ───────────────────────────────────────────
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse
+    restart: unless-stopped
+    ports:
+      - "8123:8123" # HTTP interface
+      - "9000:9000" # Native TCP interface
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/var/log/clickhouse-server
+      - ./config/clickhouse-config.xml:/etc/clickhouse-server/config.d/custom.xml:ro
+      - ./config/clickhouse-users.xml:/etc/clickhouse-server/users.d/custom.xml:ro
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: admin
+      CLICKHOUSE_PASSWORD: clickhouse123
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── OpenTelemetry Collector ─────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector
+    restart: unless-stopped
+    ports:
+      - "4317:4317" # OTLP gRPC  → your app sends events here
+      - "4318:4318" # OTLP HTTP  → alternative HTTP endpoint
+      - "55679:55679" # zpages debug UI → http://localhost:55679/debug/tracez
+    volumes:
+      - ./config/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
+  # ─── Tabix UI ────────────────────────────────────────────────────
+  tabix:
+    image: spoonest/clickhouse-tabix-web-client:stable
+    container_name: tabix
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
+  # ─── Grafana ─────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: grafana123
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
+volumes:
+  clickhouse-data:
+  clickhouse-logs:
+  grafana-data:
