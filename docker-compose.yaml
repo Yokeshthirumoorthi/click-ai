@@ -174,6 +174,25 @@ services:
       clickhouse:
         condition: service_healthy
 
+  # ─── LLM Agent ──────────────────────────────────────────────────
+  agent:
+    build:
+      context: ./agent
+    container_name: agent
+    environment:
+      CH_HOST: clickhouse
+      CH_USER: admin
+      CH_PASSWORD: clickhouse123
+      CH_DATABASE: otel
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    profiles:
+      - agent
+    stdin_open: true
+    tty: true
+
 volumes:
   clickhouse-data:
   clickhouse-logs:
