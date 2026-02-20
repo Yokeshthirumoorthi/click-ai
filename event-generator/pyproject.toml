@@ -1,7 +1,7 @@
 [project]
 name = "event-generator"
 version = "1.0.0"
-description = "Fake OTEL event generator for click-ai"
+description = "Nike SNKRS drop traffic simulator — generates traces, logs, and metrics via OTEL"
 requires-python = ">=3.12"
 dependencies = [
     "opentelemetry-sdk==1.23.0",

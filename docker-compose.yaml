@@ -1,12 +1,13 @@
 services:
-  # ─── ClickHouse Server ───────────────────────────────────────────
+
+  # ─── ClickHouse ───────────────────────────────────────────────────
   clickhouse:
     image: clickhouse/clickhouse-server:latest
     container_name: clickhouse
     restart: unless-stopped
     ports:
-      - "8123:8123" # HTTP interface
-      - "9000:9000" # Native TCP interface
+      - "8123:8123"
+      - "9000:9000"
     volumes:
       - clickhouse-data:/var/lib/clickhouse
       - clickhouse-logs:/var/log/clickhouse-server
@@ -27,50 +28,72 @@ services:
       timeout: 5s
       retries: 5
 
-  # ─── OpenTelemetry Collector ─────────────────────────────────────
+  # ─── OTEL Collector ───────────────────────────────────────────────
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
     container_name: otel-collector
     restart: unless-stopped
     ports:
-      - "4317:4317" # OTLP gRPC  → your app sends events here
-      - "4318:4318" # OTLP HTTP  → alternative HTTP endpoint
-      - "55679:55679" # zpages debug UI → http://localhost:55679/debug/tracez
+      - "4317:4317"   # gRPC — your app sends here
+      - "4318:4318"   # HTTP — alternative
     volumes:
       - ./config/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
     depends_on:
       clickhouse:
         condition: service_healthy
 
-  # ─── Tabix UI ────────────────────────────────────────────────────
-  tabix:
-    image: spoonest/clickhouse-tabix-web-client:stable
-    container_name: tabix
+  # ─── MongoDB ──────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:6.0
+    container_name: mongodb
+    restart: unless-stopped
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── HyperDX UI ───────────────────────────────────────────────────
+  hyperdx:
+    image: docker.hyperdx.io/hyperdx/hyperdx:latest
+    container_name: hyperdx
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "8080:8080"
+      - "8000:8000"
+    environment:
+      MONGO_URI: "mongodb://mongodb:27017/hyperdx"
+      FRONTEND_URL: "http://localhost:8080"
+      SERVER_URL: "http://localhost:8000"
+      HYPERDX_API_PORT: "8000"
+      HYPERDX_APP_PORT: "8080"
+      USAGE_STATS_ENABLED: "false"
+      DEFAULT_CONNECTIONS: >-
+        [{"name":"ClickHouse Local",
+          "host":"http://clickhouse:8123",
+          "username":"admin",
+          "password":"clickhouse123"}]
     depends_on:
       clickhouse:
+        condition: service_healthy
+      mongodb:
         condition: service_healthy
 
-  # ─── Grafana ─────────────────────────────────────────────────────
-  grafana:
-    image: grafana/grafana:latest
-    container_name: grafana
+  # ─── Event Generator ─────────────────────────────────────────────
+  event-generator:
+    build:
+      context: ./event-generator
+    container_name: event-generator
     restart: unless-stopped
-    ports:
-      - "3000:3000"
-    volumes:
-      - grafana-data:/var/lib/grafana
     environment:
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: grafana123
-      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      EVENTS_PER_SECOND: "5"
     depends_on:
-      clickhouse:
-        condition: service_healthy
+      - otel-collector
 
 volumes:
   clickhouse-data:
   clickhouse-logs:
-  grafana-data:
+  mongodb-data:

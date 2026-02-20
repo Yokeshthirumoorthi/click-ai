@@ -1,11 +1,23 @@
-# Start the infrastructure (ClickHouse, OTEL collector, Tabix, Grafana)
+# Start HyperDX + event generator
 up:
-    docker compose up -d
+    docker compose up -d --build
 
 # Stop all services
 down:
     docker compose down
 
-# Generate test events (runs locally, sends to localhost:4317)
-generate-events:
-    cd event-generator && uv run send_test_events.py
+# Tail event generator logs
+logs:
+    docker compose logs -f event-generator
+
+# Stop the event generator (HyperDX keeps running)
+stop:
+    docker compose stop event-generator
+
+# Start the event generator
+start:
+    docker compose start event-generator
+
+# Restart the event generator
+restart:
+    docker compose restart event-generator

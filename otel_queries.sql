@@ -1,7 +1,7 @@
 -- ============================================================
 --  Query your OTEL data in ClickHouse
---  Run these in Tabix (http://localhost:8080) after starting
---  send_test_events.py for a minute or two
+--  Connect to localhost:8123 after running the SNKRS simulator
+--  for a minute or two
 -- ============================================================
 
 -- ── First: see what tables were auto-created ────────────────
@@ -50,17 +50,18 @@ LIMIT 20;
 --  TRACES queries
 -- ════════════════════════════════════════════════════════════
 
--- Recent traces
+-- Recent traces (root spans = HTTP requests)
 SELECT
     Timestamp,
     TraceId,
     SpanId,
-    SpanName,                  -- e.g. "HTTP GET /api/users"
+    SpanName,                  -- e.g. "POST /v1/draw/enter", "POST /v1/checkout"
     Duration,                  -- in nanoseconds!
-    round(Duration / 1e6, 2)   AS duration_ms,   -- convert to ms
+    round(Duration / 1e6, 2)   AS duration_ms,
     ServiceName,
     StatusCode
 FROM otel.otel_traces
+WHERE ParentSpanId = ''
 ORDER BY Timestamp DESC
 LIMIT 50;
 
@@ -72,6 +73,7 @@ SELECT
     round(quantile(0.95)(Duration) / 1e6, 2) AS p95_ms,
     round(quantile(0.99)(Duration) / 1e6, 2) AS p99_ms
 FROM otel.otel_traces
+WHERE ParentSpanId = ''
 GROUP BY endpoint
 ORDER BY p95_ms DESC;
 
@@ -82,6 +84,7 @@ SELECT
     countIf(StatusCode = 'STATUS_CODE_ERROR')      AS errors,
     round(errors / total * 100, 1)                 AS error_pct
 FROM otel.otel_traces
+WHERE ParentSpanId = ''
 GROUP BY endpoint
 ORDER BY error_pct DESC;
 
@@ -90,13 +93,14 @@ SELECT
     toStartOfMinute(Timestamp) AS minute,
     count()                    AS requests_per_minute
 FROM otel.otel_traces
+WHERE ParentSpanId = ''
 GROUP BY minute
 ORDER BY minute DESC
 LIMIT 60;
 
 
 -- ════════════════════════════════════════════════════════════
---  METRICS queries
+--  METRICS queries (SNKRS-specific)
 -- ════════════════════════════════════════════════════════════
 
 -- What metrics are being collected?
@@ -104,22 +108,52 @@ SELECT DISTINCT MetricName
 FROM otel.otel_metrics
 ORDER BY MetricName;
 
--- Request count over time
+-- Request count over time (snkrs.requests counter)
 SELECT
     toStartOfMinute(TimeUnix) AS minute,
     sum(Value)                AS total_requests
 FROM otel.otel_metrics
-WHERE MetricName = 'http.requests'
+WHERE MetricName = 'snkrs.requests'
 GROUP BY minute
 ORDER BY minute DESC
 LIMIT 60;
 
--- Average response latency over time
+-- Inventory remaining over time (snkrs.inventory gauge)
 SELECT
-    toStartOfMinute(TimeUnix)  AS minute,
-    round(avg(Value), 2)       AS avg_latency_ms
+    toStartOfMinute(TimeUnix) AS minute,
+    sum(Value)                AS inventory_delta
 FROM otel.otel_metrics
-WHERE MetricName = 'http.response_time_ms'
+WHERE MetricName = 'snkrs.inventory'
+GROUP BY minute
+ORDER BY minute DESC
+LIMIT 60;
+
+-- Draw queue depth over time (snkrs.queue_depth gauge)
+SELECT
+    toStartOfMinute(TimeUnix) AS minute,
+    sum(Value)                AS queue_delta
+FROM otel.otel_metrics
+WHERE MetricName = 'snkrs.queue_depth'
+GROUP BY minute
+ORDER BY minute DESC
+LIMIT 60;
+
+-- Error count over time (snkrs.errors counter)
+SELECT
+    toStartOfMinute(TimeUnix) AS minute,
+    sum(Value)                AS errors
+FROM otel.otel_metrics
+WHERE MetricName = 'snkrs.errors'
+GROUP BY minute
+ORDER BY minute DESC
+LIMIT 60;
+
+-- Payment attempts over time (snkrs.payments counter)
+SELECT
+    toStartOfMinute(TimeUnix) AS minute,
+    sum(Value)                AS payment_attempts
+FROM otel.otel_metrics
+WHERE MetricName = 'snkrs.payments'
 GROUP BY minute
 ORDER BY minute DESC
 LIMIT 60;
