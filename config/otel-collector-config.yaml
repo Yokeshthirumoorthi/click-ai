@@ -82,7 +82,7 @@ exporters:
       endpoint: http://minio:9000
       region: us-east-1
       s3_force_path_style: true
-      bucket: traces
+      s3_bucket: traces
       s3_prefix: incoming
       file_prefix: traces
     marshaler: otlp_json
