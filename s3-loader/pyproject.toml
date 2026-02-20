@@ -1,0 +1,10 @@
+[project]
+name = "s3-loader"
+version = "1.0.0"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.35.0",
+    "clickhouse-connect>=0.8.0",
+    "opentelemetry-proto>=1.23.0",
+    "protobuf>=5.0.0",
+]
