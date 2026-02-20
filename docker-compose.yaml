@@ -157,6 +157,23 @@ services:
       minio-init:
         condition: service_completed_successfully
 
+  # ─── Embedding Enricher ─────────────────────────────────────────
+  embedding-enricher:
+    build:
+      context: ./embedding-enricher
+    container_name: embedding-enricher
+    restart: unless-stopped
+    environment:
+      CH_HOST: clickhouse
+      CH_USER: admin
+      CH_PASSWORD: clickhouse123
+      CH_DATABASE: otel
+      POLL_INTERVAL: "15"
+      BATCH_SIZE: "256"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
 volumes:
   clickhouse-data:
   clickhouse-logs:
