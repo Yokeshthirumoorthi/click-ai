@@ -13,6 +13,7 @@ services:
       - clickhouse-logs:/var/log/clickhouse-server
       - ./config/clickhouse-config.xml:/etc/clickhouse-server/config.d/custom.xml:ro
       - ./config/clickhouse-users.xml:/etc/clickhouse-server/users.d/custom.xml:ro
+      - ./config/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     environment:
       CLICKHOUSE_DB: default
       CLICKHOUSE_USER: admin
