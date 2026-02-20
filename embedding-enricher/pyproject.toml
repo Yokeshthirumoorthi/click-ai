@@ -1,0 +1,8 @@
+[project]
+name = "embedding-enricher"
+version = "1.0.0"
+requires-python = ">=3.12"
+dependencies = [
+    "clickhouse-connect>=0.8.0",
+    "sentence-transformers>=3.0.0",
+]
