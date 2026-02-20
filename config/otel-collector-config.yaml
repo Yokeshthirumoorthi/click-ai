@@ -74,6 +74,19 @@ exporters:
       num_consumers: 10 # parallel write workers
       queue_size: 10000 # max events buffered in memory
 
+  # ── S3 exporter (writes OTLP JSON to MinIO) ───────────────
+  # Simulates customer-side: collector writes traces to S3.
+  # Our loader reads these files on the other side.
+  awss3:
+    s3uploader:
+      endpoint: http://minio:9000
+      region: us-east-1
+      s3_force_path_style: true
+      bucket: traces
+      s3_prefix: incoming
+      file_prefix: traces
+    marshaler: otlp_json
+
   # ── Debug logger (optional) ────────────────────────────────
   # Prints events to the collector's stdout so you can verify
   # data is flowing. Remove or set to "none" in production.
@@ -103,11 +116,11 @@ service:
       processors: [memory_limiter, batch]
       exporters: [clickhouse, debug]
 
-    # TRACES pipeline: request traces → ClickHouse otel_traces table
+    # TRACES pipeline: request traces → ClickHouse + S3 (OTLP JSON)
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [clickhouse, debug]
+      exporters: [clickhouse, awss3, debug]
 
     # METRICS pipeline: counters/gauges → ClickHouse otel_metrics table
     metrics:
