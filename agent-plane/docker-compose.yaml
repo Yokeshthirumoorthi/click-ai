@@ -1,5 +1,34 @@
 services:
 
+  # ─── Session ClickHouse (per-session data, part-shipped from master) ──
+  clickhouse-session:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse-session
+    restart: unless-stopped
+    ports:
+      - "8124:8123"
+      - "9001:9000"
+    volumes:
+      - clickhouse-session-data:/var/lib/clickhouse
+      - ./config/session-clickhouse-config.xml:/etc/clickhouse-server/config.d/custom.xml:ro
+      - ./config/session-clickhouse-users.xml:/etc/clickhouse-server/users.d/custom.xml:ro
+    environment:
+      CLICKHOUSE_DB: otel
+      CLICKHOUSE_USER: ${CH_USER:-admin}
+      CLICKHOUSE_PASSWORD: ${CH_PASSWORD:-clickhouse123}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - agent
+
   # ─── Analysis Platform ─────────────────────────────────────────
   platform:
     build:
@@ -13,6 +42,10 @@ services:
       CH_USER: ${CH_USER:-admin}
       CH_PASSWORD: ${CH_PASSWORD:-clickhouse123}
       CH_DATABASE: ${CH_DATABASE:-otel}
+      SESSION_CH_HOST: ${SESSION_CH_HOST:-clickhouse-session}
+      SESSION_CH_PORT: ${SESSION_CH_PORT:-8123}
+      SESSION_CH_USER: ${SESSION_CH_USER:-admin}
+      SESSION_CH_PASSWORD: ${SESSION_CH_PASSWORD:-clickhouse123}
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       LLM_MODEL: ${LLM_MODEL:-anthropic/claude-sonnet-4}
@@ -20,12 +53,15 @@ services:
       AUTH_USERNAME: ${AUTH_USERNAME:-admin}
       AUTH_PASSWORD: ${AUTH_PASSWORD:-admin}
     volumes:
-      - session-data:/app/data/sessions
+      - clickhouse-data:/master-ch-data:ro
+      - clickhouse-session-data:/session-ch-data
     depends_on:
       clickhouse:
+        condition: service_healthy
+      clickhouse-session:
         condition: service_healthy
     profiles:
       - agent
 
 volumes:
-  session-data:
+  clickhouse-session-data:
