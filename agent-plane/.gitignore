@@ -1,0 +1,4 @@
+data/sessions/*.duckdb
+data/sessions/*.duckdb.wal
+__pycache__/
+*.pyc
