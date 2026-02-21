@@ -6,10 +6,7 @@
 CREATE DATABASE IF NOT EXISTS otel;
 
 -- ── otel_traces ───────────────────────────────────────────────
--- Matches the schema the OTEL ClickHouse exporter auto-creates.
--- We create it explicitly so the s3-loader can also write to it.
--- The OTEL exporter uses CREATE TABLE IF NOT EXISTS, so this
--- won't conflict — whichever runs first wins, same schema.
+-- Schema for the S3-first pipeline. The s3-loader writes to this table.
 CREATE TABLE IF NOT EXISTS otel.otel_traces (
     Timestamp          DateTime64(9)                           CODEC(Delta, ZSTD(1)),
     TraceId            String                                  CODEC(ZSTD(1)),
@@ -50,7 +47,7 @@ ORDER BY (ServiceName, SpanName, toDateTime(Timestamp))
 TTL toDateTime(Timestamp) + INTERVAL 72 HOUR
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 
--- ── Trace ID → Timestamp lookup (same as OTEL exporter creates) ─
+-- ── Trace ID → Timestamp lookup ─────────────────────────────
 CREATE TABLE IF NOT EXISTS otel.otel_traces_trace_id_ts (
     TraceId  String   CODEC(ZSTD(1)),
     Start    DateTime CODEC(Delta, ZSTD(1)),
