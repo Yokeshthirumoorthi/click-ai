@@ -6,7 +6,7 @@ services:
       context: .
     container_name: click-ai-platform
     ports:
-      - "8000:8000"
+      - "3000:8000"
     environment:
       CH_HOST: ${CH_HOST:-clickhouse}
       CH_PORT: ${CH_PORT:-8123}

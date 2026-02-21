@@ -23,6 +23,15 @@ def _ch_client():
     )
 
 
+def _pull_table(ch, con, table_name: str, query: str, params: dict) -> int:
+    """Pull data from ClickHouse using query_df and insert into DuckDB via DataFrame."""
+    df = ch.query_df(query, parameters=params)
+    if df.empty:
+        return 0
+    con.execute(f"INSERT INTO {table_name} SELECT * FROM df")
+    return len(df)
+
+
 def _create_duckdb_tables(con: duckdb.DuckDBPyConnection):
     con.execute("""
         CREATE TABLE IF NOT EXISTS traces (
@@ -78,112 +87,94 @@ def _create_duckdb_tables(con: duckdb.DuckDBPyConnection):
             Duration BIGINT,
             StatusCode VARCHAR,
             StatusMessage VARCHAR,
-            EmbeddingText VARCHAR,
-            Embedding FLOAT[]
+            EmbeddingText VARCHAR
         )
     """)
 
 
-def _pull_traces(ch, con, services: list[str], start: datetime, end: datetime):
-    svc_filter = "AND ServiceName IN %(services)s" if services else ""
+def _svc_filter(services: list[str]) -> str:
+    if not services:
+        return ""
+    return "AND ServiceName IN %(services)s"
+
+
+def _pull_traces(ch, con, services: list[str], start: datetime, end: datetime) -> int:
     query = f"""
         SELECT
-            toString(Timestamp), TraceId, SpanId, ParentSpanId,
+            toString(Timestamp) AS Timestamp, TraceId, SpanId, ParentSpanId,
             SpanName, SpanKind, ServiceName, Duration,
             StatusCode, StatusMessage,
-            toString(SpanAttributes), toString(ResourceAttributes)
+            toString(SpanAttributes) AS SpanAttributes,
+            toString(ResourceAttributes) AS ResourceAttributes
         FROM otel_traces
         WHERE Timestamp >= %(start)s AND Timestamp <= %(end)s
-        {svc_filter}
+        {_svc_filter(services)}
         ORDER BY Timestamp
         LIMIT %(limit)s
     """
     params = {"start": start, "end": end, "limit": config.MAX_ROWS_PER_TABLE}
     if services:
         params["services"] = services
-    result = ch.query(query, parameters=params)
-    if result.result_rows:
-        con.executemany(
-            "INSERT INTO traces VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            result.result_rows,
-        )
-    return len(result.result_rows)
+    return _pull_table(ch, con, "traces", query, params)
 
 
-def _pull_logs(ch, con, services: list[str], start: datetime, end: datetime):
-    svc_filter = "AND ServiceName IN %(services)s" if services else ""
+def _pull_logs(ch, con, services: list[str], start: datetime, end: datetime) -> int:
     query = f"""
         SELECT
-            toString(Timestamp), TraceId, SpanId,
+            toString(Timestamp) AS Timestamp, TraceId, SpanId,
             SeverityNumber, SeverityText, Body, ServiceName,
-            toString(LogAttributes), toString(ResourceAttributes)
+            toString(LogAttributes) AS LogAttributes,
+            toString(ResourceAttributes) AS ResourceAttributes
         FROM otel_logs
         WHERE Timestamp >= %(start)s AND Timestamp <= %(end)s
-        {svc_filter}
+        {_svc_filter(services)}
         ORDER BY Timestamp
         LIMIT %(limit)s
     """
     params = {"start": start, "end": end, "limit": config.MAX_ROWS_PER_TABLE}
     if services:
         params["services"] = services
-    result = ch.query(query, parameters=params)
-    if result.result_rows:
-        con.executemany(
-            "INSERT INTO logs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            result.result_rows,
-        )
-    return len(result.result_rows)
+    return _pull_table(ch, con, "logs", query, params)
 
 
-def _pull_metrics(ch, con, services: list[str], start: datetime, end: datetime):
-    svc_filter = "AND ServiceName IN %(services)s" if services else ""
+def _pull_metrics(ch, con, services: list[str], start: datetime, end: datetime) -> int:
     query = f"""
         SELECT
-            toString(Timestamp), MetricName, MetricDescription,
+            toString(Timestamp) AS Timestamp, MetricName, MetricDescription,
             MetricUnit, MetricType, Value, ServiceName,
-            toString(MetricAttributes), toString(ResourceAttributes)
+            toString(MetricAttributes) AS MetricAttributes,
+            toString(ResourceAttributes) AS ResourceAttributes
         FROM otel_metrics
         WHERE Timestamp >= %(start)s AND Timestamp <= %(end)s
-        {svc_filter}
+        {_svc_filter(services)}
         ORDER BY Timestamp
         LIMIT %(limit)s
     """
     params = {"start": start, "end": end, "limit": config.MAX_ROWS_PER_TABLE}
     if services:
         params["services"] = services
-    result = ch.query(query, parameters=params)
-    if result.result_rows:
-        con.executemany(
-            "INSERT INTO metrics VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            result.result_rows,
-        )
-    return len(result.result_rows)
+    return _pull_table(ch, con, "metrics", query, params)
 
 
-def _pull_enriched(ch, con, services: list[str], start: datetime, end: datetime):
-    svc_filter = "AND ServiceName IN %(services)s" if services else ""
+def _pull_enriched(ch, con, services: list[str], start: datetime, end: datetime) -> int:
+    # Pull enriched traces without the large Embedding array — keeps it fast.
+    # EmbeddingText is kept for context; vector search (C8) will use it when implemented.
     query = f"""
         SELECT
-            toString(Timestamp), TraceId, SpanId, ParentSpanId,
+            toString(Timestamp) AS Timestamp, TraceId, SpanId, ParentSpanId,
             SpanName, SpanKind, ServiceName, Duration,
             StatusCode, StatusMessage,
-            EmbeddingText, Embedding
+            EmbeddingText
         FROM otel_traces_enriched
         WHERE Timestamp >= %(start)s AND Timestamp <= %(end)s
-        {svc_filter}
+        {_svc_filter(services)}
         ORDER BY Timestamp
         LIMIT %(limit)s
     """
     params = {"start": start, "end": end, "limit": config.MAX_ROWS_PER_TABLE}
     if services:
         params["services"] = services
-    result = ch.query(query, parameters=params)
-    if result.result_rows:
-        con.executemany(
-            "INSERT INTO traces_enriched VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            result.result_rows,
-        )
-    return len(result.result_rows)
+    return _pull_table(ch, con, "traces_enriched", query, params)
 
 
 def _build_manifest(con: duckdb.DuckDBPyConnection) -> dict:
@@ -220,11 +211,15 @@ def build_session(
         counts = {}
 
         if "traces" in signal_types:
+            log.info("Pulling traces...")
             counts["traces"] = _pull_traces(ch, con, services, start, end)
+            log.info("Pulling enriched traces...")
             counts["traces_enriched"] = _pull_enriched(ch, con, services, start, end)
         if "logs" in signal_types:
+            log.info("Pulling logs...")
             counts["logs"] = _pull_logs(ch, con, services, start, end)
         if "metrics" in signal_types:
+            log.info("Pulling metrics...")
             counts["metrics"] = _pull_metrics(ch, con, services, start, end)
 
         manifest = _build_manifest(con)

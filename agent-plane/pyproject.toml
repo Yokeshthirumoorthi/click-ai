@@ -8,4 +8,6 @@ dependencies = [
     "openai>=1.50.0",
     "duckdb>=1.1.0",
     "clickhouse-connect>=0.8.0",
+    "pandas>=2.2.0",
+    "python-multipart>=0.0.12",
 ]

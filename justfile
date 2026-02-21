@@ -89,12 +89,12 @@ bench:
 
 # Open the analysis platform in a browser
 platform:
-    @echo "Starting platform at http://localhost:8000"
-    {{compose}} --profile agent up -d --build platform
+    @echo "Starting platform at http://localhost:3000"
+    {{compose}} --profile clickhouse-local --profile agent up -d --build platform
 
 # Tail platform logs
 platform-logs:
-    {{compose}} --profile agent logs -f platform
+    {{compose}} --profile clickhouse-local --profile agent logs -f platform
 
 # ─── Utilities ────────────────────────────────────────────────────
 
