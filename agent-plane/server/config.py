@@ -8,11 +8,8 @@ CH_USER = os.getenv("CH_USER", "admin")
 CH_PASSWORD = os.getenv("CH_PASSWORD", "clickhouse123")
 CH_DATABASE = os.getenv("CH_DATABASE", "otel")
 
-# Session ClickHouse (agent-plane, receives shipped parts)
-SESSION_CH_HOST = os.getenv("SESSION_CH_HOST", "clickhouse-session")
-SESSION_CH_PORT = int(os.getenv("SESSION_CH_PORT", "8123"))
-SESSION_CH_USER = os.getenv("SESSION_CH_USER", "admin")
-SESSION_CH_PASSWORD = os.getenv("SESSION_CH_PASSWORD", "clickhouse123")
+# Session data (local chDB storage)
+SESSION_DIR = Path(os.getenv("SESSION_DIR", "/app/data/sessions"))
 
 # OpenRouter LLM
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")

@@ -1,4 +1,4 @@
-"""Session manager — CRUD for analysis sessions backed by session ClickHouse."""
+"""Session manager — CRUD for analysis sessions backed by chDB (embedded ClickHouse)."""
 
 import logging
 import uuid
@@ -112,7 +112,7 @@ def delete_session(session_id: str, user: str = Depends(get_current_user)):
     if not session or session["user"] != user:
         raise HTTPException(404, "Session not found")
 
-    # Drop the per-session database on session ClickHouse
+    # Remove the session's chDB directory
     try:
         drop_session(session_id)
     except Exception as e:
