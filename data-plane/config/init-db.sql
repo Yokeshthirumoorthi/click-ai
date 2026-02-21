@@ -112,32 +112,30 @@ ORDER BY (ServiceName, MetricName, toDateTime(Timestamp))
 TTL toDateTime(Timestamp) + INTERVAL 30 DAY
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 
--- ── Enriched traces (with embeddings) ─────────────────────────
-CREATE TABLE IF NOT EXISTS otel.otel_traces_enriched (
-    Timestamp          DateTime64(9)              CODEC(Delta, ZSTD(1)),
-    TraceId            String                     CODEC(ZSTD(1)),
-    SpanId             String                     CODEC(ZSTD(1)),
-    ParentSpanId       String                     CODEC(ZSTD(1)),
-    SpanName           LowCardinality(String)     CODEC(ZSTD(1)),
-    SpanKind           LowCardinality(String)     CODEC(ZSTD(1)),
-    ServiceName        LowCardinality(String)     CODEC(ZSTD(1)),
-    Duration           UInt64                     CODEC(ZSTD(1)),
-    StatusCode         LowCardinality(String)     CODEC(ZSTD(1)),
-    StatusMessage      String                     CODEC(ZSTD(1)),
-    -- Flattened attributes (top-level columns for fast filtering)
-    ResourceAttributesFlat Map(LowCardinality(String), String) CODEC(ZSTD(1)),
-    SpanAttributesFlat     Map(LowCardinality(String), String) CODEC(ZSTD(1)),
-    -- Embedding columns
-    EmbeddingText      String                     CODEC(ZSTD(1)),
-    Embedding          Array(Float32)             CODEC(ZSTD(1)),
-
-    INDEX idx_trace_id  TraceId  TYPE bloom_filter(0.001) GRANULARITY 1,
-    INDEX idx_duration  Duration TYPE minmax              GRANULARITY 1
-) ENGINE = MergeTree()
-PARTITION BY toDate(Timestamp)
-ORDER BY (ServiceName, SpanName, toDateTime(Timestamp))
-TTL toDateTime(Timestamp) + INTERVAL 30 DAY
-SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+-- ── Enriched traces (with embeddings) — DISABLED for now ──────
+-- TODO: re-enable when embedding enricher is ready
+-- CREATE TABLE IF NOT EXISTS otel.otel_traces_enriched (
+--     Timestamp          DateTime64(9)              CODEC(Delta, ZSTD(1)),
+--     TraceId            String                     CODEC(ZSTD(1)),
+--     SpanId             String                     CODEC(ZSTD(1)),
+--     ParentSpanId       String                     CODEC(ZSTD(1)),
+--     SpanName           LowCardinality(String)     CODEC(ZSTD(1)),
+--     SpanKind           LowCardinality(String)     CODEC(ZSTD(1)),
+--     ServiceName        LowCardinality(String)     CODEC(ZSTD(1)),
+--     Duration           UInt64                     CODEC(ZSTD(1)),
+--     StatusCode         LowCardinality(String)     CODEC(ZSTD(1)),
+--     StatusMessage      String                     CODEC(ZSTD(1)),
+--     ResourceAttributesFlat Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+--     SpanAttributesFlat     Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+--     EmbeddingText      String                     CODEC(ZSTD(1)),
+--     Embedding          Array(Float32)             CODEC(ZSTD(1)),
+--     INDEX idx_trace_id  TraceId  TYPE bloom_filter(0.001) GRANULARITY 1,
+--     INDEX idx_duration  Duration TYPE minmax              GRANULARITY 1
+-- ) ENGINE = MergeTree()
+-- PARTITION BY toDate(Timestamp)
+-- ORDER BY (ServiceName, SpanName, toDateTime(Timestamp))
+-- TTL toDateTime(Timestamp) + INTERVAL 30 DAY
+-- SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 
 -- ── Loader file watermark ─────────────────────────────────────
 -- Tracks which S3 files have been processed by the loader.
@@ -171,12 +169,12 @@ CREATE TABLE IF NOT EXISTS otel.metric_loader_file_watermark (
 ) ENGINE = ReplacingMergeTree(ProcessedAt)
 ORDER BY Filename;
 
--- ── Enricher watermark ────────────────────────────────────────
--- Tracks row-level progress of the embedding enricher.
-CREATE TABLE IF NOT EXISTS otel.enricher_watermark (
-    WatermarkKey  String DEFAULT 'global',
-    LastTimestamp DateTime64(9),
-    LastSpanId    String,
-    UpdatedAt     DateTime DEFAULT now()
-) ENGINE = ReplacingMergeTree(UpdatedAt)
-ORDER BY WatermarkKey;
+-- ── Enricher watermark — DISABLED for now ────────────────────
+-- TODO: re-enable when embedding enricher is ready
+-- CREATE TABLE IF NOT EXISTS otel.enricher_watermark (
+--     WatermarkKey  String DEFAULT 'global',
+--     LastTimestamp DateTime64(9),
+--     LastSpanId    String,
+--     UpdatedAt     DateTime DEFAULT now()
+-- ) ENGINE = ReplacingMergeTree(UpdatedAt)
+-- ORDER BY WatermarkKey;

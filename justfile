@@ -56,10 +56,6 @@ logs:
 loader-logs:
     {{compose}} logs -f s3-loader
 
-# Tail embedding-enricher logs
-enricher-logs:
-    {{compose}} logs -f embedding-enricher
-
 # ─── S3 Pipeline ──────────────────────────────────────────────────
 
 # Show loader watermark status (processed / failed files) for all signal types
@@ -67,23 +63,11 @@ loader-status:
     docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
         --query "SELECT 'traces' AS signal, Status, count() AS cnt, sum(RowCount) AS total_rows FROM otel.loader_file_watermark FINAL GROUP BY Status UNION ALL SELECT 'logs', Status, count(), sum(RowCount) FROM otel.log_loader_file_watermark FINAL GROUP BY Status UNION ALL SELECT 'metrics', Status, count(), sum(RowCount) FROM otel.metric_loader_file_watermark FINAL GROUP BY Status ORDER BY signal"
 
-# Show enrichment progress
-enrichment-status:
-    @echo "=== Enriched rows ==="
-    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
-        --query "SELECT count() AS enriched_rows FROM otel.otel_traces_enriched"
-    @echo "=== Raw trace rows ==="
-    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
-        --query "SELECT count() AS raw_rows FROM otel.otel_traces"
-    @echo "=== Enricher watermark ==="
-    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
-        --query "SELECT * FROM otel.enricher_watermark FINAL"
-
 # Quick row count check across all tables
 bench:
     @echo "=== Table row counts ==="
     @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
-        --query "SELECT 'otel_traces' AS tbl, count() AS rows FROM otel.otel_traces UNION ALL SELECT 'otel_logs', count() FROM otel.otel_logs UNION ALL SELECT 'otel_metrics', count() FROM otel.otel_metrics UNION ALL SELECT 'otel_traces_enriched', count() FROM otel.otel_traces_enriched UNION ALL SELECT 'loader_watermark', count() FROM otel.loader_file_watermark FINAL"
+        --query "SELECT 'otel_traces' AS tbl, count() AS rows FROM otel.otel_traces UNION ALL SELECT 'otel_logs', count() FROM otel.otel_logs UNION ALL SELECT 'otel_metrics', count() FROM otel.otel_metrics UNION ALL SELECT 'loader_watermark', count() FROM otel.loader_file_watermark FINAL"
 
 # ─── Analysis Platform ──────────────────────────────────────────
 
@@ -135,8 +119,6 @@ gen-clean:
         --query "TRUNCATE TABLE otel.otel_logs"
     @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
         --query "TRUNCATE TABLE otel.otel_metrics"
-    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
-        --query "TRUNCATE TABLE otel.otel_traces_enriched"
     @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
         --query "TRUNCATE TABLE otel.otel_traces_trace_id_ts"
     @echo "Done — all tables truncated"
