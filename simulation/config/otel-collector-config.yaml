@@ -39,16 +39,36 @@ processors:
     spike_limit_mib: 512
 
 exporters:
-  # ── S3 exporter (writes OTLP JSON to MinIO) ───────────────
-  # Simulates customer-side: collector writes traces to S3.
-  # Our loader reads these files on the other side.
-  awss3:
+  # ── S3 exporters (write OTLP JSON to MinIO) ──────────────
+  # Each signal type gets its own exporter with a separate prefix.
+  # The s3-loader reads these files and inserts into ClickHouse.
+  awss3/traces:
     s3uploader:
       endpoint: http://minio:9000
       region: us-east-1
       s3_force_path_style: true
       s3_bucket: traces
       s3_prefix: incoming
+      file_prefix: otlp_
+    marshaler: otlp_json
+
+  awss3/metrics:
+    s3uploader:
+      endpoint: http://minio:9000
+      region: us-east-1
+      s3_force_path_style: true
+      s3_bucket: traces
+      s3_prefix: metrics
+      file_prefix: otlp_
+    marshaler: otlp_json
+
+  awss3/logs:
+    s3uploader:
+      endpoint: http://minio:9000
+      region: us-east-1
+      s3_force_path_style: true
+      s3_bucket: traces
+      s3_prefix: logs
       file_prefix: otlp_
     marshaler: otlp_json
 
@@ -75,20 +95,20 @@ service:
   extensions: [health_check, zpages]
 
   pipelines:
-    # LOGS pipeline: app logs → debug only (not stored)
-    logs:
-      receivers: [otlp]
-      processors: [memory_limiter, batch]
-      exporters: [debug]
-
     # TRACES pipeline: request traces → S3 (OTLP JSON)
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [awss3, debug]
+      exporters: [awss3/traces, debug]
 
-    # METRICS pipeline: counters/gauges → debug only (not stored)
+    # METRICS pipeline: counters/gauges → S3 (OTLP JSON)
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [debug]
+      exporters: [awss3/metrics, debug]
+
+    # LOGS pipeline: app logs → S3 (OTLP JSON)
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [awss3/logs, debug]

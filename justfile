@@ -62,10 +62,10 @@ enricher-logs:
 
 # ─── S3 Pipeline ──────────────────────────────────────────────────
 
-# Show loader watermark status (processed / failed files)
+# Show loader watermark status (processed / failed files) for all signal types
 loader-status:
     docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
-        --query "SELECT Status, count() AS cnt, sum(RowCount) AS total_rows FROM otel.loader_file_watermark FINAL GROUP BY Status"
+        --query "SELECT 'traces' AS signal, Status, count() AS cnt, sum(RowCount) AS total_rows FROM otel.loader_file_watermark FINAL GROUP BY Status UNION ALL SELECT 'logs', Status, count(), sum(RowCount) FROM otel.log_loader_file_watermark FINAL GROUP BY Status UNION ALL SELECT 'metrics', Status, count(), sum(RowCount) FROM otel.metric_loader_file_watermark FINAL GROUP BY Status ORDER BY signal"
 
 # Show enrichment progress
 enrichment-status:
@@ -83,7 +83,7 @@ enrichment-status:
 bench:
     @echo "=== Table row counts ==="
     @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
-        --query "SELECT 'otel_traces' AS tbl, count() AS rows FROM otel.otel_traces UNION ALL SELECT 'otel_traces_enriched', count() FROM otel.otel_traces_enriched UNION ALL SELECT 'loader_watermark', count() FROM otel.loader_file_watermark FINAL"
+        --query "SELECT 'otel_traces' AS tbl, count() AS rows FROM otel.otel_traces UNION ALL SELECT 'otel_logs', count() FROM otel.otel_logs UNION ALL SELECT 'otel_metrics', count() FROM otel.otel_metrics UNION ALL SELECT 'otel_traces_enriched', count() FROM otel.otel_traces_enriched UNION ALL SELECT 'loader_watermark', count() FROM otel.loader_file_watermark FINAL"
 
 # ─── Agent ────────────────────────────────────────────────────────
 
@@ -93,7 +93,7 @@ agent:
 
 # ─── Utilities ────────────────────────────────────────────────────
 
-# List files in the MinIO traces bucket
+# List files in the MinIO traces bucket (all signal prefixes)
 minio-ls:
     docker run --rm --network=click-ai_default --entrypoint /bin/sh minio/mc -c \
-        "mc alias set local http://minio:9000 minioadmin minioadmin > /dev/null 2>&1 && mc ls --recursive local/traces/incoming/"
+        "mc alias set local http://minio:9000 minioadmin minioadmin > /dev/null 2>&1 && echo '=== traces ===' && mc ls --recursive local/traces/incoming/ && echo '=== metrics ===' && mc ls --recursive local/traces/metrics/ && echo '=== logs ===' && mc ls --recursive local/traces/logs/"

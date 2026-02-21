@@ -5,7 +5,9 @@ S3_ENDPOINT = os.getenv("S3_ENDPOINT", "http://minio:9000")
 S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "minioadmin")
 S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "minioadmin")
 S3_BUCKET = os.getenv("S3_BUCKET", "traces")
-S3_PREFIX = os.getenv("S3_PREFIX", "incoming/")
+S3_TRACES_PREFIX = os.getenv("S3_TRACES_PREFIX", "incoming/")
+S3_METRICS_PREFIX = os.getenv("S3_METRICS_PREFIX", "metrics/")
+S3_LOGS_PREFIX = os.getenv("S3_LOGS_PREFIX", "logs/")
 
 # ClickHouse
 CH_HOST = os.getenv("CH_HOST", "clickhouse")
