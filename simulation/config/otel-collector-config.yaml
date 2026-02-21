@@ -6,7 +6,7 @@
 #      → sends OTLP events to port 4317 (gRPC) or 4318 (HTTP)
 #      → Collector receives them in the "receivers" section
 #      → processes/batches them in the "processors" section
-#      → writes to ClickHouse in the "exporters" section
+#      → writes to S3 (MinIO) in the "exporters" section
 # ============================================================
 
 receivers:
@@ -39,41 +39,6 @@ processors:
     spike_limit_mib: 512
 
 exporters:
-  # ── ClickHouse exporter ────────────────────────────────────
-  # This writes your telemetry data into ClickHouse tables.
-  # The exporter auto-creates the tables if they don't exist!
-  clickhouse:
-    endpoint: tcp://clickhouse:9000 # ClickHouse native port
-    username: admin
-    password: clickhouse123
-    database: otel # all tables go into this DB
-
-    # TTL: auto-delete old data to save disk space
-    # "72h" = delete data older than 3 days
-    ttl: 72h
-
-    # How many rows to buffer before writing
-    # Larger = faster inserts, more memory used
-    compress: lz4
-
-    # Table names (these are created automatically)
-    logs_table_name: otel_logs
-    traces_table_name: otel_traces
-    metrics_table_name: otel_metrics
-
-    # Retry on failure — don't lose data if ClickHouse blips
-    retry_on_failure:
-      enabled: true
-      initial_interval: 5s
-      max_interval: 30s
-      max_elapsed_time: 300s
-
-    # Queue events in memory if ClickHouse is temporarily slow
-    sending_queue:
-      enabled: true
-      num_consumers: 10 # parallel write workers
-      queue_size: 10000 # max events buffered in memory
-
   # ── S3 exporter (writes OTLP JSON to MinIO) ───────────────
   # Simulates customer-side: collector writes traces to S3.
   # Our loader reads these files on the other side.
@@ -84,7 +49,7 @@ exporters:
       s3_force_path_style: true
       s3_bucket: traces
       s3_prefix: incoming
-      file_prefix: traces
+      file_prefix: otlp_
     marshaler: otlp_json
 
   # ── Debug logger (optional) ────────────────────────────────
@@ -110,20 +75,20 @@ service:
   extensions: [health_check, zpages]
 
   pipelines:
-    # LOGS pipeline: app logs → ClickHouse otel_logs table
+    # LOGS pipeline: app logs → debug only (not stored)
     logs:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [clickhouse, debug]
+      exporters: [debug]
 
-    # TRACES pipeline: request traces → ClickHouse + S3 (OTLP JSON)
+    # TRACES pipeline: request traces → S3 (OTLP JSON)
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [clickhouse, awss3, debug]
+      exporters: [awss3, debug]
 
-    # METRICS pipeline: counters/gauges → ClickHouse otel_metrics table
+    # METRICS pipeline: counters/gauges → debug only (not stored)
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [clickhouse, debug]
+      exporters: [debug]

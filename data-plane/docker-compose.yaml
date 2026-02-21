@@ -1,0 +1,76 @@
+services:
+
+  # ─── ClickHouse ───────────────────────────────────────────────────
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse
+    restart: unless-stopped
+    profiles:
+      - clickhouse-local
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/var/log/clickhouse-server
+      - ./config/clickhouse-config.xml:/etc/clickhouse-server/config.d/custom.xml:ro
+      - ./config/clickhouse-users.xml:/etc/clickhouse-server/users.d/custom.xml:ro
+      - ./config/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    environment:
+      CLICKHOUSE_DB: ${CH_DATABASE:-otel}
+      CLICKHOUSE_USER: ${CH_USER:-admin}
+      CLICKHOUSE_PASSWORD: ${CH_PASSWORD:-clickhouse123}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── MongoDB ──────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:6.0
+    container_name: mongodb
+    restart: unless-stopped
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── HyperDX UI ──────────────────────────────────────────────────
+  hyperdx:
+    image: docker.hyperdx.io/hyperdx/hyperdx:latest
+    container_name: hyperdx
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "8000:8000"
+    environment:
+      MONGO_URI: "mongodb://mongodb:27017/hyperdx"
+      FRONTEND_URL: "http://localhost:8080"
+      SERVER_URL: "http://localhost:8000"
+      HYPERDX_API_PORT: "8000"
+      HYPERDX_APP_PORT: "8080"
+      USAGE_STATS_ENABLED: "false"
+      DEFAULT_CONNECTIONS: >-
+        [{"name":"ClickHouse Local",
+          "host":"http://clickhouse:8123",
+          "username":"admin",
+          "password":"clickhouse123"}]
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+
+volumes:
+  clickhouse-data:
+  clickhouse-logs:
+  mongodb-data:
