@@ -5,11 +5,11 @@ if (!requireAuth()) throw new Error('Not authenticated');
 const userDisplay = document.getElementById('user-display');
 if (userDisplay) userDisplay.textContent = getUsername();
 
-// Set default time range (last 1 hour)
+// Set default time range (last 24 hours, UTC via toISOString to match ClickHouse)
 const now = new Date();
-const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 document.getElementById('end-time').value = now.toISOString().slice(0, 16);
-document.getElementById('start-time').value = oneHourAgo.toISOString().slice(0, 16);
+document.getElementById('start-time').value = oneDayAgo.toISOString().slice(0, 16);
 
 // Load available services
 async function loadServices() {

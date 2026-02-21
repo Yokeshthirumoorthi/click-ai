@@ -17,5 +17,8 @@ CH_PASSWORD = os.getenv("CH_PASSWORD", "clickhouse123")
 CH_DATABASE = os.getenv("CH_DATABASE", "otel")
 
 # Loader behavior
-POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "10"))  # seconds
-BATCH_SIZE = int(os.getenv("BATCH_SIZE", "5000"))       # rows per INSERT
+POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "10"))  # seconds (legacy, used as fallback)
+POLL_INTERVAL_BUSY = float(os.getenv("POLL_INTERVAL_BUSY", "0.5"))  # seconds between polls when files found
+POLL_INTERVAL_IDLE = float(os.getenv("POLL_INTERVAL_IDLE", "2.0"))  # seconds between polls when idle
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "50000"))       # rows per INSERT
+MAX_FILE_WORKERS = int(os.getenv("MAX_FILE_WORKERS", "16"))  # concurrent S3 download threads per signal

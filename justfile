@@ -8,7 +8,7 @@ up:
 
 # Stop all services
 down:
-    {{compose}} --profile clickhouse-local down -v
+    {{compose}} --profile clickhouse-local --profile agent down -v
 
 # ─── Production per-machine ───────────────────────────────────────
 
@@ -56,10 +56,6 @@ logs:
 loader-logs:
     {{compose}} logs -f s3-loader
 
-# Tail embedding-enricher logs
-enricher-logs:
-    {{compose}} logs -f embedding-enricher
-
 # ─── S3 Pipeline ──────────────────────────────────────────────────
 
 # Show loader watermark status (processed / failed files) for all signal types
@@ -67,23 +63,11 @@ loader-status:
     docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
         --query "SELECT 'traces' AS signal, Status, count() AS cnt, sum(RowCount) AS total_rows FROM otel.loader_file_watermark FINAL GROUP BY Status UNION ALL SELECT 'logs', Status, count(), sum(RowCount) FROM otel.log_loader_file_watermark FINAL GROUP BY Status UNION ALL SELECT 'metrics', Status, count(), sum(RowCount) FROM otel.metric_loader_file_watermark FINAL GROUP BY Status ORDER BY signal"
 
-# Show enrichment progress
-enrichment-status:
-    @echo "=== Enriched rows ==="
-    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
-        --query "SELECT count() AS enriched_rows FROM otel.otel_traces_enriched"
-    @echo "=== Raw trace rows ==="
-    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
-        --query "SELECT count() AS raw_rows FROM otel.otel_traces"
-    @echo "=== Enricher watermark ==="
-    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
-        --query "SELECT * FROM otel.enricher_watermark FINAL"
-
 # Quick row count check across all tables
 bench:
     @echo "=== Table row counts ==="
     @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
-        --query "SELECT 'otel_traces' AS tbl, count() AS rows FROM otel.otel_traces UNION ALL SELECT 'otel_logs', count() FROM otel.otel_logs UNION ALL SELECT 'otel_metrics', count() FROM otel.otel_metrics UNION ALL SELECT 'otel_traces_enriched', count() FROM otel.otel_traces_enriched UNION ALL SELECT 'loader_watermark', count() FROM otel.loader_file_watermark FINAL"
+        --query "SELECT 'otel_traces' AS tbl, count() AS rows FROM otel.otel_traces UNION ALL SELECT 'otel_logs', count() FROM otel.otel_logs UNION ALL SELECT 'otel_metrics', count() FROM otel.otel_metrics UNION ALL SELECT 'loader_watermark', count() FROM otel.loader_file_watermark FINAL"
 
 # ─── Analysis Platform ──────────────────────────────────────────
 
@@ -95,6 +79,50 @@ platform:
 # Tail platform logs
 platform-logs:
     {{compose}} --profile clickhouse-local --profile agent logs -f platform
+
+# ─── Load Generator (OTLP pipeline) ─────────────────────────────
+# Runs directly on the host, sends to the already-running OTEL collector on localhost:4317
+
+gen_dir := "simulation/load-generator"
+
+# Generate 10k span smoke test via OTEL pipeline
+gen-xs:
+    cd {{gen_dir}} && python3 generate.py --tier xs --otel-endpoint localhost:4317
+
+# Generate 100k spans via OTEL pipeline
+gen-s:
+    cd {{gen_dir}} && python3 generate.py --tier s --otel-endpoint localhost:4317
+
+# Generate 1M spans via OTEL pipeline
+gen-m:
+    cd {{gen_dir}} && python3 generate.py --tier m --otel-endpoint localhost:4317
+
+# Generate 10M spans via OTEL pipeline
+gen-l:
+    cd {{gen_dir}} && python3 generate.py --tier l --otel-endpoint localhost:4317
+
+# Generate 100M spans via OTEL pipeline
+gen-xl:
+    cd {{gen_dir}} && python3 generate.py --tier xl --otel-endpoint localhost:4317
+
+# Show current row counts and estimated data volume
+gen-status:
+    @echo "=== Row Counts ==="
+    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
+        --query "SELECT 'otel_traces' AS tbl, count() AS rows, formatReadableSize(sum(data_compressed_bytes)) AS compressed, formatReadableSize(sum(data_uncompressed_bytes)) AS uncompressed FROM system.parts WHERE database = 'otel' AND table = 'otel_traces' AND active UNION ALL SELECT 'otel_logs', count(), formatReadableSize(sum(data_compressed_bytes)), formatReadableSize(sum(data_uncompressed_bytes)) FROM system.parts WHERE database = 'otel' AND table = 'otel_logs' AND active UNION ALL SELECT 'otel_metrics', count(), formatReadableSize(sum(data_compressed_bytes)), formatReadableSize(sum(data_uncompressed_bytes)) FROM system.parts WHERE database = 'otel' AND table = 'otel_metrics' AND active FORMAT PrettyCompact"
+
+# Truncate all tables for a fresh start
+gen-clean:
+    @echo "Truncating all otel tables..."
+    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
+        --query "TRUNCATE TABLE otel.otel_traces"
+    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
+        --query "TRUNCATE TABLE otel.otel_logs"
+    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
+        --query "TRUNCATE TABLE otel.otel_metrics"
+    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
+        --query "TRUNCATE TABLE otel.otel_traces_trace_id_ts"
+    @echo "Done — all tables truncated"
 
 # ─── Utilities ────────────────────────────────────────────────────
 

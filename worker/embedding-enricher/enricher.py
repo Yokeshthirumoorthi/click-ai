@@ -2,10 +2,18 @@
 Embedding Enricher: polls otel_traces for new rows, computes embeddings
 with sentence-transformers (all-MiniLM-L6-v2), and writes enriched rows
 to otel_traces_enriched.
+
+Architecture:
+  Prefetch thread ──queue──▶ Main thread (GPU encode + insert)
+    fetch BATCH_SIZE rows      encode batch on GPU
+    from ClickHouse            insert enriched rows
+    (continuous)               update watermark
 """
 
 import logging
 import time
+import threading
+import queue
 from datetime import datetime
 
 import clickhouse_connect
@@ -119,18 +127,24 @@ def fetch_new_rows(ch, watermark_ts: datetime, watermark_span_id: str) -> list[d
     return rows
 
 
+def _rows_to_columns(rows: list[list], n_cols: int) -> list[list]:
+    """Transpose row-oriented data to columnar format."""
+    return [[row[i] for row in rows] for i in range(n_cols)]
+
+
 def enrich_and_insert(ch, model: SentenceTransformer, rows: list[dict]):
-    """Compute embeddings and insert enriched rows."""
+    """Compute embeddings and insert enriched rows using columnar format."""
     # Build embedding texts
     texts = [build_embedding_text(row) for row in rows]
 
-    # Batch encode
-    embeddings = model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
+    # Batch encode with sub-batching for GPU memory management
+    embeddings = model.encode(texts, show_progress_bar=False, convert_to_numpy=True,
+                              batch_size=512)
 
-    # Build insert data
-    insert_data = []
+    # Build insert data as rows first, then convert to columnar
+    insert_rows = []
     for row, text, embedding in zip(rows, texts, embeddings):
-        insert_data.append([
+        insert_rows.append([
             row["Timestamp"],
             row["TraceId"],
             row["SpanId"],
@@ -147,11 +161,35 @@ def enrich_and_insert(ch, model: SentenceTransformer, rows: list[dict]):
             embedding.tolist(),
         ])
 
+    col_data = _rows_to_columns(insert_rows, len(ENRICHED_COLUMNS))
     ch.insert(
         "otel_traces_enriched",
-        insert_data,
+        col_data,
         column_names=ENRICHED_COLUMNS,
+        column_oriented=True,
     )
+
+
+# ── Prefetch thread ───────────────────────────────────────────────
+
+def prefetch_loop(prefetch_queue: queue.Queue, stop_event: threading.Event):
+    """Continuously fetch the next batch of rows while GPU is encoding."""
+    ch = get_ch_client()
+
+    while not stop_event.is_set():
+        try:
+            watermark_ts, watermark_span_id = get_watermark(ch)
+            rows = fetch_new_rows(ch, watermark_ts, watermark_span_id)
+
+            if rows:
+                # Block until the main thread consumes the previous batch
+                prefetch_queue.put(rows)
+            else:
+                time.sleep(config.POLL_INTERVAL)
+
+        except Exception as e:
+            log.error("Prefetch error: %s", e, exc_info=True)
+            time.sleep(config.POLL_INTERVAL)
 
 
 def run():
@@ -167,15 +205,28 @@ def run():
 
     ch = get_ch_client()
 
-    while True:
-        try:
-            watermark_ts, watermark_span_id = get_watermark(ch)
-            rows = fetch_new_rows(ch, watermark_ts, watermark_span_id)
+    # Start prefetch thread
+    prefetch_q = queue.Queue(maxsize=2)  # at most 2 batches buffered
+    stop_event = threading.Event()
+    prefetch_thread = threading.Thread(
+        target=prefetch_loop, args=(prefetch_q, stop_event),
+        daemon=True, name="prefetch",
+    )
+    prefetch_thread.start()
+    log.info("Prefetch thread started")
 
-            if rows:
+    try:
+        while True:
+            try:
+                # Wait for prefetched batch (with timeout so we can check for shutdown)
+                rows = prefetch_q.get(timeout=config.POLL_INTERVAL)
+            except queue.Empty:
+                continue
+
+            try:
                 log.info(
-                    "Enriching %d rows (watermark: %s / %s)",
-                    len(rows), watermark_ts, watermark_span_id[:8],
+                    "Enriching %d rows",
+                    len(rows),
                 )
 
                 enrich_and_insert(ch, model, rows)
@@ -185,13 +236,11 @@ def run():
                 update_watermark(ch, last["Timestamp"], last["SpanId"])
 
                 log.info("  → %d rows enriched and inserted", len(rows))
-            else:
-                log.debug("No new rows to enrich")
+            except Exception as e:
+                log.error("Enrichment cycle error: %s", e, exc_info=True)
 
-        except Exception as e:
-            log.error("Enrichment cycle error: %s", e, exc_info=True)
-
-        time.sleep(config.POLL_INTERVAL)
+    finally:
+        stop_event.set()
 
 
 if __name__ == "__main__":
