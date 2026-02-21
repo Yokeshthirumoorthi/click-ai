@@ -8,7 +8,7 @@ up:
 
 # Stop all services
 down:
-    {{compose}} --profile clickhouse-local down -v
+    {{compose}} --profile clickhouse-local --profile agent down -v
 
 # ─── Production per-machine ───────────────────────────────────────
 

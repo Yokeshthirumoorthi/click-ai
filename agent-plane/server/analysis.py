@@ -29,7 +29,6 @@ RULES:
 - Timestamps are stored as VARCHAR strings — use TRY_CAST or string comparisons
 - Duration is in nanoseconds (divide by 1000000 for milliseconds)
 - SpanAttributes and ResourceAttributes are VARCHAR containing map-like strings from ClickHouse
-- For the traces_enriched table, Embedding is an ARRAY of FLOAT values
 - Do NOT use any DML statements (INSERT, UPDATE, DELETE, DROP, etc.)
 - Keep queries efficient — use LIMIT when exploring
 

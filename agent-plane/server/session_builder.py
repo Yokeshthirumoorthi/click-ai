@@ -179,7 +179,7 @@ def _pull_enriched(ch, con, services: list[str], start: datetime, end: datetime)
 
 def _build_manifest(con: duckdb.DuckDBPyConnection) -> dict:
     tables = {}
-    for table_name in ["traces", "logs", "metrics", "traces_enriched"]:
+    for table_name in ["traces", "logs", "metrics"]:
         try:
             count = con.execute(f"SELECT count(*) FROM {table_name}").fetchone()[0]
             if count == 0:
@@ -213,8 +213,6 @@ def build_session(
         if "traces" in signal_types:
             log.info("Pulling traces...")
             counts["traces"] = _pull_traces(ch, con, services, start, end)
-            log.info("Pulling enriched traces...")
-            counts["traces_enriched"] = _pull_enriched(ch, con, services, start, end)
         if "logs" in signal_types:
             log.info("Pulling logs...")
             counts["logs"] = _pull_logs(ch, con, services, start, end)
