@@ -1,0 +1,2654 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lantern — Ask Your Production Data Anything</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=JetBrains+Mono:wght@300;400;700&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,600;1,9..144,300&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #0a0905;
+        --surface: #111009;
+        --surface2: #1a1812;
+        --border: #2a2618;
+        --border2: #3a3428;
+        --amber: #f0a030;
+        --amber-dim: #a06810;
+        --amber-glow: rgba(240, 160, 48, 0.12);
+        --amber-glow2: rgba(240, 160, 48, 0.05);
+        --text: #e8e0cc;
+        --muted: #7a7060;
+        --muted2: #5a5040;
+        --green: #7ec98a;
+        --red: #e07060;
+        --blue: #70a8d0;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: "JetBrains Mono", monospace;
+        overflow-x: hidden;
+        cursor: none;
+      }
+
+      /* Custom cursor */
+      .cursor {
+        width: 8px;
+        height: 8px;
+        background: var(--amber);
+        border-radius: 50%;
+        position: fixed;
+        pointer-events: none;
+        z-index: 9999;
+        transform: translate(-50%, -50%);
+        transition:
+          transform 0.1s,
+          width 0.2s,
+          height 0.2s;
+        box-shadow: 0 0 12px var(--amber);
+      }
+      .cursor-ring {
+        width: 32px;
+        height: 32px;
+        border: 1px solid rgba(240, 160, 48, 0.4);
+        border-radius: 50%;
+        position: fixed;
+        pointer-events: none;
+        z-index: 9998;
+        transform: translate(-50%, -50%);
+        transition:
+          transform 0.12s ease-out,
+          width 0.2s,
+          height 0.2s,
+          opacity 0.2s;
+      }
+
+      /* Grain overlay */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+        pointer-events: none;
+        z-index: 1000;
+        opacity: 0.4;
+      }
+
+      /* NAV */
+      nav {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 100;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 20px 48px;
+        background: linear-gradient(
+          to bottom,
+          rgba(10, 9, 5, 0.95),
+          transparent
+        );
+        backdrop-filter: blur(2px);
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-family: "DM Serif Display", serif;
+        font-size: 1.3rem;
+        color: var(--amber);
+        letter-spacing: 0.5px;
+      }
+
+      .logo-icon svg {
+        width: 24px;
+        height: 28px;
+      }
+
+      .nav-links {
+        display: flex;
+        gap: 32px;
+        list-style: none;
+        font-size: 0.7rem;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+      }
+      .nav-links a {
+        color: var(--muted);
+        text-decoration: none;
+        transition: color 0.2s;
+      }
+      .nav-links a:hover {
+        color: var(--amber);
+      }
+
+      .nav-cta {
+        background: var(--amber);
+        color: #000;
+        border: none;
+        padding: 10px 24px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        cursor: none;
+        transition:
+          background 0.2s,
+          transform 0.1s;
+      }
+      .nav-cta:hover {
+        background: #ffc060;
+        transform: translateY(-1px);
+      }
+
+      /* HERO */
+      .hero {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 120px 48px 80px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .hero-grid-bg {
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(rgba(240, 160, 48, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(240, 160, 48, 0.03) 1px, transparent 1px);
+        background-size: 60px 60px;
+        mask-image: radial-gradient(
+          ellipse 80% 60% at 50% 50%,
+          black,
+          transparent
+        );
+      }
+
+      .hero-glow {
+        position: absolute;
+        width: 600px;
+        height: 600px;
+        background: radial-gradient(
+          circle,
+          rgba(240, 160, 48, 0.08) 0%,
+          transparent 70%
+        );
+        top: 50%;
+        left: 20%;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+      }
+
+      .hero-label {
+        font-size: 0.62rem;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        color: var(--amber);
+        margin-bottom: 24px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        opacity: 0;
+        animation: fadeUp 0.6s ease forwards 0.2s;
+      }
+      .hero-label::before {
+        content: "";
+        width: 32px;
+        height: 1px;
+        background: var(--amber);
+      }
+
+      .hero-headline {
+        font-family: "Fraunces", serif;
+        font-size: clamp(3rem, 7vw, 6rem);
+        font-weight: 300;
+        line-height: 1.05;
+        letter-spacing: -1px;
+        max-width: 900px;
+        margin-bottom: 32px;
+        opacity: 0;
+        animation: fadeUp 0.7s ease forwards 0.35s;
+      }
+
+      .hero-headline em {
+        font-style: italic;
+        color: var(--amber);
+      }
+
+      .hero-sub {
+        font-size: 0.88rem;
+        color: var(--muted);
+        line-height: 1.8;
+        max-width: 540px;
+        margin-bottom: 48px;
+        opacity: 0;
+        animation: fadeUp 0.7s ease forwards 0.5s;
+      }
+
+      .hero-actions {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        opacity: 0;
+        animation: fadeUp 0.7s ease forwards 0.65s;
+      }
+
+      .btn-primary {
+        background: var(--amber);
+        color: #000;
+        border: none;
+        padding: 14px 32px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        cursor: none;
+        text-decoration: none;
+        display: inline-block;
+        transition:
+          background 0.2s,
+          transform 0.1s,
+          box-shadow 0.2s;
+      }
+      .btn-primary:hover {
+        background: #ffc060;
+        transform: translateY(-2px);
+        box-shadow: 0 8px 32px rgba(240, 160, 48, 0.3);
+      }
+
+      .btn-ghost {
+        color: var(--muted);
+        font-size: 0.72rem;
+        letter-spacing: 1px;
+        text-decoration: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: color 0.2s;
+      }
+      .btn-ghost:hover {
+        color: var(--text);
+      }
+
+      .hero-stats {
+        display: flex;
+        gap: 48px;
+        margin-top: 80px;
+        padding-top: 48px;
+        border-top: 1px solid var(--border);
+        opacity: 0;
+        animation: fadeUp 0.7s ease forwards 0.8s;
+      }
+
+      .stat-val {
+        font-family: "Fraunces", serif;
+        font-size: 2.4rem;
+        font-weight: 300;
+        color: var(--amber);
+        line-height: 1;
+        margin-bottom: 4px;
+      }
+      .stat-label {
+        font-size: 0.62rem;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      /* TERMINAL HERO VISUAL */
+      .hero-terminal {
+        position: absolute;
+        right: 48px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 460px;
+        background: var(--surface);
+        border: 1px solid var(--border2);
+        box-shadow:
+          0 32px 80px rgba(0, 0, 0, 0.6),
+          0 0 0 1px rgba(240, 160, 48, 0.05);
+        opacity: 0;
+        animation: fadeLeft 0.8s ease forwards 0.9s;
+      }
+
+      .terminal-bar {
+        background: var(--surface2);
+        padding: 10px 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border-bottom: 1px solid var(--border);
+      }
+      .terminal-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+      }
+      .t-red {
+        background: #e06060;
+      }
+      .t-yellow {
+        background: var(--amber-dim);
+      }
+      .t-green {
+        background: #60a070;
+      }
+      .terminal-title {
+        font-size: 0.62rem;
+        color: var(--muted);
+        letter-spacing: 1px;
+        margin-left: 8px;
+      }
+
+      .terminal-body {
+        padding: 20px;
+        font-size: 0.68rem;
+        line-height: 2;
+      }
+
+      .t-comment {
+        color: var(--muted2);
+      }
+      .t-prompt {
+        color: var(--amber-dim);
+      }
+      .t-cmd {
+        color: var(--text);
+      }
+      .t-out {
+        color: var(--green);
+      }
+      .t-dim {
+        color: var(--muted);
+      }
+      .t-highlight {
+        color: var(--amber);
+      }
+      .t-err {
+        color: var(--red);
+      }
+
+      .cursor-blink {
+        display: inline-block;
+        width: 6px;
+        height: 12px;
+        background: var(--amber);
+        vertical-align: middle;
+        animation: blink 1s step-end infinite;
+      }
+      @keyframes blink {
+        50% {
+          opacity: 0;
+        }
+      }
+
+      /* SECTION BASE */
+      section {
+        padding: 120px 48px;
+        position: relative;
+      }
+
+      .section-tag {
+        font-size: 0.58rem;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        color: var(--amber);
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .section-tag::before {
+        content: "";
+        width: 20px;
+        height: 1px;
+        background: var(--amber);
+      }
+
+      .section-title {
+        font-family: "Fraunces", serif;
+        font-size: clamp(2rem, 4vw, 3.2rem);
+        font-weight: 300;
+        line-height: 1.15;
+        letter-spacing: -0.5px;
+        margin-bottom: 16px;
+      }
+      .section-title em {
+        font-style: italic;
+        color: var(--amber);
+      }
+
+      .section-sub {
+        font-size: 0.82rem;
+        color: var(--muted);
+        line-height: 1.8;
+        max-width: 560px;
+      }
+
+      /* PROBLEM SECTION */
+      .problem {
+        background: var(--surface);
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+      }
+
+      .problem-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 64px;
+        margin-top: 64px;
+        align-items: start;
+      }
+
+      .problem-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+      }
+
+      .problem-item {
+        padding: 24px 0;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        gap: 20px;
+        align-items: flex-start;
+      }
+
+      .problem-num {
+        font-size: 0.6rem;
+        color: var(--muted2);
+        letter-spacing: 1px;
+        padding-top: 3px;
+        flex-shrink: 0;
+      }
+
+      .problem-text strong {
+        display: block;
+        font-size: 0.85rem;
+        color: var(--text);
+        margin-bottom: 6px;
+        font-weight: 400;
+      }
+
+      .problem-text p {
+        font-size: 0.72rem;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      /* CALCULATOR */
+      .calc-card {
+        background: var(--bg);
+        border: 1px solid var(--border2);
+        padding: 0;
+        position: sticky;
+        top: 100px;
+        overflow: hidden;
+      }
+
+      .calc-title {
+        font-size: 0.65rem;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        color: var(--amber);
+        padding: 20px 24px;
+        background: var(--surface2);
+        border-bottom: 1px solid var(--border);
+        font-weight: 700;
+      }
+
+      .calc-inputs {
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .calc-row {
+        margin-bottom: 16px;
+      }
+      .calc-row:last-child {
+        margin-bottom: 0;
+      }
+
+      .calc-input-label {
+        display: block;
+        font-size: 0.62rem;
+        color: var(--muted);
+        margin-bottom: 6px;
+        line-height: 1.4;
+      }
+
+      .calc-input-wrap {
+        display: flex;
+        align-items: center;
+        gap: 0;
+        background: var(--surface);
+        border: 1px solid var(--border2);
+        transition: border-color 0.2s;
+      }
+      .calc-input-wrap:focus-within {
+        border-color: var(--amber);
+      }
+
+      .calc-input {
+        flex: 1;
+        background: transparent;
+        border: none;
+        color: var(--amber);
+        font-family: "Fraunces", serif;
+        font-size: 1.2rem;
+        padding: 8px 12px;
+        outline: none;
+        width: 60px;
+        -moz-appearance: textfield;
+      }
+      .calc-input::-webkit-outer-spin-button,
+      .calc-input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+
+      .calc-input-unit {
+        font-size: 0.6rem;
+        color: var(--muted2);
+        letter-spacing: 0.5px;
+        padding-right: 12px;
+        white-space: nowrap;
+      }
+
+      .calc-input-prefix {
+        font-size: 0.85rem;
+        color: var(--muted2);
+        padding-left: 12px;
+      }
+
+      .calc-output {
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .calc-output-title {
+        font-size: 0.58rem;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: var(--muted2);
+        margin-bottom: 8px;
+      }
+
+      .calc-line {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 7px 0;
+        border-bottom: 1px solid var(--border);
+        font-size: 0.68rem;
+        color: var(--muted);
+      }
+
+      .calc-line-val {
+        font-weight: 700;
+        letter-spacing: 0.5px;
+      }
+      .calc-line-val.bad {
+        color: var(--red);
+      }
+      .calc-line-val.good {
+        color: var(--green);
+      }
+
+      .calc-bottom {
+        padding: 20px 24px;
+        background: rgba(126, 201, 138, 0.04);
+      }
+
+      .calc-bottom-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 12px;
+        text-align: center;
+        margin-bottom: 12px;
+      }
+
+      .calc-bottom-number {
+        font-family: "Fraunces", serif;
+        font-size: 1.5rem;
+        color: var(--green);
+        line-height: 1;
+        margin-bottom: 4px;
+      }
+
+      .calc-bottom-label {
+        font-size: 0.55rem;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: var(--green);
+        opacity: 0.7;
+      }
+
+      .calc-bottom-note {
+        font-size: 0.58rem;
+        color: var(--muted2);
+        text-align: center;
+        line-height: 1.5;
+        margin-top: 8px;
+      }
+
+      /* FEATURES */
+      .features {
+        background: var(--bg);
+      }
+
+      .features-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1px;
+        background: var(--border);
+        border: 1px solid var(--border);
+        margin-top: 64px;
+      }
+
+      .feature {
+        background: var(--bg);
+        padding: 40px;
+        transition: background 0.2s;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .feature::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 2px;
+        height: 0;
+        background: var(--amber);
+        transition: height 0.3s ease;
+      }
+
+      .feature:hover {
+        background: var(--surface2);
+      }
+      .feature:hover::before {
+        height: 100%;
+      }
+
+      .feature-num {
+        font-size: 0.55rem;
+        letter-spacing: 2px;
+        color: var(--muted2);
+        margin-bottom: 20px;
+      }
+
+      .feature-icon {
+        font-size: 1.6rem;
+        margin-bottom: 16px;
+        display: block;
+      }
+
+      .feature-title {
+        font-family: "Fraunces", serif;
+        font-size: 1.3rem;
+        font-weight: 300;
+        color: var(--text);
+        margin-bottom: 12px;
+        line-height: 1.2;
+      }
+
+      .feature-body {
+        font-size: 0.72rem;
+        color: var(--muted);
+        line-height: 1.8;
+      }
+
+      .feature-tag {
+        display: inline-block;
+        margin-top: 20px;
+        font-size: 0.58rem;
+        letter-spacing: 1px;
+        padding: 4px 10px;
+        border: 1px solid var(--border2);
+        color: var(--muted2);
+      }
+
+      /* HOW IT WORKS */
+      .how-it-works {
+        background: var(--surface);
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+      }
+
+      .steps-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 80px;
+        margin-top: 64px;
+        align-items: start;
+      }
+
+      .steps-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+      }
+
+      .step-item {
+        display: flex;
+        gap: 20px;
+        padding: 24px 0;
+        border-bottom: 1px solid var(--border);
+        position: relative;
+      }
+
+      .step-num {
+        width: 28px;
+        height: 28px;
+        border: 1px solid var(--border2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.6rem;
+        color: var(--amber);
+        flex-shrink: 0;
+        margin-top: 2px;
+      }
+
+      .step-text strong {
+        display: block;
+        font-size: 0.8rem;
+        color: var(--text);
+        margin-bottom: 4px;
+        font-weight: 400;
+      }
+
+      .step-text p {
+        font-size: 0.7rem;
+        color: var(--muted);
+        line-height: 1.65;
+      }
+
+      /* Demo visual */
+      .demo-visual {
+        background: var(--bg);
+        border: 1px solid var(--border2);
+        overflow: hidden;
+      }
+
+      .demo-header {
+        background: var(--surface2);
+        padding: 10px 16px;
+        font-size: 0.6rem;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: var(--amber);
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .demo-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--amber);
+      }
+
+      .demo-body {
+        padding: 20px;
+        font-size: 0.68rem;
+        line-height: 2;
+      }
+
+      .demo-q {
+        color: var(--muted);
+        margin-bottom: 16px;
+        font-style: italic;
+      }
+      .demo-step {
+        margin: 12px 0;
+      }
+      .demo-step-label {
+        color: var(--amber-dim);
+        font-size: 0.6rem;
+        letter-spacing: 1px;
+        margin-bottom: 4px;
+      }
+      .demo-finding {
+        color: var(--green);
+        font-size: 0.65rem;
+        padding: 4px 0;
+      }
+      .demo-conclusion {
+        margin-top: 16px;
+        padding: 12px;
+        background: rgba(240, 160, 48, 0.05);
+        border: 1px solid rgba(240, 160, 48, 0.15);
+        color: var(--amber);
+        font-size: 0.68rem;
+        line-height: 1.7;
+      }
+
+      /* USE CASES */
+      .use-cases {
+        background: var(--bg);
+      }
+
+      .use-cases-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1px;
+        background: var(--border);
+        border: 1px solid var(--border);
+        margin-top: 64px;
+      }
+
+      .use-case {
+        background: var(--bg);
+        padding: 40px 32px;
+        transition: background 0.2s;
+      }
+      .use-case:hover {
+        background: var(--surface2);
+      }
+
+      .use-case-icon {
+        font-size: 1.8rem;
+        margin-bottom: 16px;
+        display: block;
+      }
+
+      .use-case-title {
+        font-family: "Fraunces", serif;
+        font-size: 1.15rem;
+        font-weight: 300;
+        color: var(--text);
+        margin-bottom: 12px;
+        line-height: 1.2;
+      }
+
+      .use-case-persona {
+        font-size: 0.6rem;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: var(--amber-dim);
+        margin-bottom: 12px;
+      }
+
+      .use-case-body {
+        font-size: 0.7rem;
+        color: var(--muted);
+        line-height: 1.8;
+      }
+
+      .use-case-example {
+        margin-top: 16px;
+        padding: 10px 12px;
+        background: var(--surface);
+        border-left: 2px solid var(--amber-dim);
+        font-size: 0.65rem;
+        color: var(--text);
+        font-style: italic;
+      }
+
+      /* WHAT CHANGES */
+      .before-after {
+        background: var(--surface);
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+      }
+
+      .ba-grid {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        gap: 0;
+        margin-top: 64px;
+        border: 1px solid var(--border);
+      }
+
+      .ba-col {
+        padding: 40px;
+      }
+
+      .ba-col.before {
+        background: rgba(224, 112, 96, 0.03);
+      }
+      .ba-col.after {
+        background: rgba(126, 201, 138, 0.03);
+      }
+
+      .ba-col-title {
+        font-size: 0.6rem;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        margin-bottom: 24px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--border);
+      }
+      .ba-col.before .ba-col-title {
+        color: var(--red);
+      }
+      .ba-col.after .ba-col-title {
+        color: var(--green);
+      }
+
+      .ba-divider {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 48px;
+        background: var(--bg);
+        border-left: 1px solid var(--border);
+        border-right: 1px solid var(--border);
+        font-size: 1.2rem;
+        color: var(--amber);
+      }
+
+      .ba-item {
+        padding: 12px 0;
+        border-bottom: 1px solid var(--border);
+        font-size: 0.72rem;
+        line-height: 1.7;
+      }
+      .ba-col.before .ba-item {
+        color: var(--muted);
+      }
+      .ba-col.after .ba-item {
+        color: var(--text);
+      }
+
+      /* COST COMPARISON */
+      .cost-compare {
+        background: var(--bg);
+      }
+
+      .cost-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 32px;
+        margin-top: 64px;
+        align-items: start;
+      }
+
+      .cost-card {
+        background: var(--surface);
+        border: 1px solid var(--border2);
+        overflow: hidden;
+      }
+
+      .cost-card-header {
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .cost-card-title {
+        font-size: 0.65rem;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        font-weight: 700;
+      }
+      .cost-card.traditional .cost-card-title {
+        color: var(--red);
+      }
+      .cost-card.lantern .cost-card-title {
+        color: var(--green);
+      }
+
+      .cost-card-badge {
+        font-size: 0.55rem;
+        letter-spacing: 1px;
+        padding: 3px 8px;
+        border: 1px solid var(--border2);
+        color: var(--muted2);
+      }
+
+      .cost-inputs {
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .cost-inputs-title {
+        font-size: 0.58rem;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: var(--muted2);
+        margin-bottom: 12px;
+      }
+
+      .cost-input-row {
+        margin-bottom: 12px;
+      }
+      .cost-input-row:last-child {
+        margin-bottom: 0;
+      }
+
+      .cost-input-label {
+        display: block;
+        font-size: 0.62rem;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+
+      .cost-input-wrap {
+        display: flex;
+        align-items: center;
+        background: var(--bg);
+        border: 1px solid var(--border2);
+        transition: border-color 0.2s;
+      }
+      .cost-input-wrap:focus-within {
+        border-color: var(--amber);
+      }
+
+      .cost-input {
+        flex: 1;
+        background: transparent;
+        border: none;
+        color: var(--amber);
+        font-family: "Fraunces", serif;
+        font-size: 1.1rem;
+        padding: 6px 10px;
+        outline: none;
+        width: 60px;
+        -moz-appearance: textfield;
+      }
+      .cost-input::-webkit-outer-spin-button,
+      .cost-input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+
+      .cost-input-unit {
+        font-size: 0.58rem;
+        color: var(--muted2);
+        padding-right: 10px;
+        white-space: nowrap;
+      }
+
+      .cost-breakdown {
+        padding: 20px 24px;
+      }
+
+      .cost-breakdown-title {
+        font-size: 0.58rem;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: var(--muted2);
+        margin-bottom: 8px;
+      }
+
+      .cost-line {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--border);
+        font-size: 0.68rem;
+      }
+
+      .cost-line-label {
+        color: var(--muted);
+      }
+
+      .cost-line-detail {
+        font-size: 0.58rem;
+        color: var(--muted2);
+      }
+
+      .cost-line-val {
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        white-space: nowrap;
+      }
+      .cost-card.traditional .cost-line-val {
+        color: var(--red);
+      }
+      .cost-card.lantern .cost-line-val {
+        color: var(--green);
+      }
+
+      .cost-total {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        padding: 16px 24px;
+        border-top: 1px solid var(--border2);
+      }
+
+      .cost-total-label {
+        font-size: 0.62rem;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .cost-total-val {
+        font-family: "Fraunces", serif;
+        font-size: 2rem;
+        font-weight: 300;
+        line-height: 1;
+      }
+      .cost-card.traditional .cost-total-val {
+        color: var(--red);
+      }
+      .cost-card.lantern .cost-total-val {
+        color: var(--green);
+      }
+
+      .cost-total-period {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.6rem;
+        color: var(--muted2);
+        margin-left: 4px;
+      }
+
+      .cost-annual {
+        text-align: right;
+        padding: 0 24px 16px;
+        font-size: 0.62rem;
+        color: var(--muted2);
+      }
+
+      .cost-savings-banner {
+        margin-top: 32px;
+        background: rgba(126, 201, 138, 0.04);
+        border: 1px solid rgba(126, 201, 138, 0.15);
+        padding: 24px;
+        text-align: center;
+      }
+
+      .cost-savings-amount {
+        font-family: "Fraunces", serif;
+        font-size: 2.4rem;
+        font-weight: 300;
+        color: var(--green);
+        line-height: 1;
+        margin-bottom: 4px;
+      }
+
+      .cost-savings-label {
+        font-size: 0.62rem;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: var(--green);
+        opacity: 0.7;
+        margin-bottom: 12px;
+      }
+
+      .cost-savings-note {
+        font-size: 0.58rem;
+        color: var(--muted2);
+        line-height: 1.6;
+        max-width: 600px;
+        margin: 0 auto;
+      }
+
+      .lantern-feature-list {
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .lantern-feature-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 0;
+        font-size: 0.68rem;
+        color: var(--text);
+      }
+
+      .lantern-feature-check {
+        color: var(--green);
+        font-size: 0.8rem;
+        flex-shrink: 0;
+      }
+
+      .lantern-price-note {
+        padding: 20px 24px;
+        font-size: 0.68rem;
+        color: var(--muted);
+        line-height: 1.7;
+        text-align: center;
+        font-style: italic;
+      }
+
+      @media (max-width: 900px) {
+        .cost-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      /* EARLY ACCESS CTA */
+      .early-access {
+        background: var(--bg);
+        text-align: center;
+        padding: 120px 48px;
+      }
+
+      .ea-badge {
+        display: inline-block;
+        padding: 6px 16px;
+        border: 1px solid var(--amber-dim);
+        font-size: 0.6rem;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        color: var(--amber);
+        margin-bottom: 24px;
+      }
+
+      .early-access h2 {
+        font-family: "Fraunces", serif;
+        font-size: clamp(2rem, 4vw, 3rem);
+        font-weight: 300;
+        line-height: 1.15;
+        margin-bottom: 16px;
+      }
+      .early-access h2 em {
+        font-style: italic;
+        color: var(--amber);
+      }
+
+      .early-access .section-sub {
+        margin: 0 auto 32px;
+        text-align: center;
+        max-width: 520px;
+      }
+
+      .ea-form {
+        display: flex;
+        gap: 8px;
+        max-width: 440px;
+        margin: 0 auto;
+      }
+
+      .ea-input {
+        flex: 1;
+        padding: 14px 16px;
+        background: var(--surface);
+        border: 1px solid var(--border2);
+        color: var(--text);
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.75rem;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+      .ea-input:focus {
+        border-color: var(--amber);
+      }
+      .ea-input::placeholder {
+        color: var(--muted2);
+      }
+
+      /* FOOTER CTA */
+      .footer-cta {
+        background: var(--bg);
+        text-align: center;
+        padding: 160px 48px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .footer-cta-glow {
+        position: absolute;
+        width: 800px;
+        height: 400px;
+        background: radial-gradient(
+          ellipse,
+          rgba(240, 160, 48, 0.06) 0%,
+          transparent 70%
+        );
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+      }
+
+      .footer-cta h2 {
+        font-family: "Fraunces", serif;
+        font-size: clamp(2.5rem, 6vw, 5rem);
+        font-weight: 300;
+        line-height: 1.1;
+        letter-spacing: -0.5px;
+        margin-bottom: 24px;
+      }
+      .footer-cta h2 em {
+        font-style: italic;
+        color: var(--amber);
+      }
+
+      .footer-cta p {
+        font-size: 0.82rem;
+        color: var(--muted);
+        margin-bottom: 48px;
+        max-width: 480px;
+        margin-left: auto;
+        margin-right: auto;
+        line-height: 1.8;
+      }
+
+      .footer-actions {
+        display: flex;
+        gap: 16px;
+        justify-content: center;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      /* FOOTER */
+      footer {
+        background: var(--surface);
+        border-top: 1px solid var(--border);
+        padding: 48px;
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr 1fr;
+        gap: 48px;
+      }
+
+      .footer-col-title {
+        font-size: 0.58rem;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        color: var(--muted2);
+        margin-bottom: 16px;
+      }
+
+      .footer-links {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .footer-links a {
+        font-size: 0.7rem;
+        color: var(--muted);
+        text-decoration: none;
+        transition: color 0.2s;
+      }
+      .footer-links a:hover {
+        color: var(--amber);
+      }
+
+      .footer-brand p {
+        font-size: 0.68rem;
+        color: var(--muted2);
+        line-height: 1.7;
+        max-width: 220px;
+      }
+
+      /* ANIMATIONS */
+      @keyframes fadeUp {
+        from {
+          opacity: 0;
+          transform: translateY(24px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes fadeLeft {
+        from {
+          opacity: 0;
+          transform: translate(24px, -50%);
+        }
+        to {
+          opacity: 1;
+          transform: translate(0, -50%);
+        }
+      }
+
+      .reveal {
+        opacity: 0;
+        transform: translateY(24px);
+        transition:
+          opacity 0.6s ease,
+          transform 0.6s ease;
+      }
+      .reveal.visible {
+        opacity: 1;
+        transform: none;
+      }
+
+      /* SCROLLBAR */
+      ::-webkit-scrollbar {
+        width: 4px;
+      }
+      ::-webkit-scrollbar-track {
+        background: var(--bg);
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--border2);
+        border-radius: 2px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: var(--amber-dim);
+      }
+
+      @media (max-width: 900px) {
+        nav {
+          padding: 16px 24px;
+        }
+        .nav-links {
+          display: none;
+        }
+        .hero {
+          padding: 100px 24px 60px;
+        }
+        .hero-terminal {
+          display: none;
+        }
+        section {
+          padding: 80px 24px;
+        }
+        .problem-grid,
+        .steps-grid {
+          grid-template-columns: 1fr;
+        }
+        .features-grid,
+        .use-cases-grid {
+          grid-template-columns: 1fr;
+        }
+        .ba-grid {
+          grid-template-columns: 1fr;
+        }
+        .ba-divider {
+          width: 100%;
+          height: 48px;
+          border-left: none;
+          border-right: none;
+          border-top: 1px solid var(--border);
+          border-bottom: 1px solid var(--border);
+        }
+        .hero-stats {
+          gap: 24px;
+          flex-wrap: wrap;
+        }
+        footer {
+          grid-template-columns: 1fr 1fr;
+          gap: 32px;
+          padding: 32px 24px;
+        }
+        .ea-form {
+          flex-direction: column;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="cursor" id="cursor"></div>
+    <div class="cursor-ring" id="cursorRing"></div>
+
+    <!-- NAV -->
+    <nav>
+      <div class="logo">
+        <svg viewBox="0 0 24 28" fill="none" class="logo-icon">
+          <path
+            d="M12 2L12 8"
+            stroke="#f0a030"
+            stroke-width="1.5"
+            stroke-linecap="round"
+          />
+          <path
+            d="M7 5L9.5 10"
+            stroke="#f0a030"
+            stroke-width="1"
+            stroke-linecap="round"
+            opacity="0.6"
+          />
+          <path
+            d="M17 5L14.5 10"
+            stroke="#f0a030"
+            stroke-width="1"
+            stroke-linecap="round"
+            opacity="0.6"
+          />
+          <rect
+            x="7"
+            y="10"
+            width="10"
+            height="14"
+            rx="1"
+            stroke="#f0a030"
+            stroke-width="1.5"
+          />
+          <rect
+            x="9"
+            y="12"
+            width="6"
+            height="2"
+            rx="0.5"
+            fill="#f0a030"
+            opacity="0.4"
+          />
+          <path
+            d="M10 17C10 17 11 19 12 19C13 19 14 17 14 17"
+            stroke="#f0a030"
+            stroke-width="1"
+            stroke-linecap="round"
+            opacity="0.6"
+          />
+        </svg>
+        Lantern
+      </div>
+      <ul class="nav-links">
+        <li><a href="#benefits">Benefits</a></li>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#how">How it works</a></li>
+        <li><a href="#savings">Savings</a></li>
+        <li><a href="#pricing">Pricing</a></li>
+      </ul>
+      <button class="nav-cta">Get Early Access</button>
+    </nav>
+
+    <!-- HERO -->
+    <section class="hero">
+      <div class="hero-grid-bg"></div>
+      <div class="hero-glow"></div>
+
+      <div class="hero-label">Production intelligence</div>
+
+      <h1 class="hero-headline">
+        Ask your systems<br />
+        anything, in<br />
+        <em>plain English.</em>
+      </h1>
+
+      <p class="hero-sub">
+        Business teams live in spreadsheets. Observability data lives in
+        engineering tools. The insight that needs both? It never happens.
+        Lantern fixes that — no engineers, no queries, no waiting. Just ask in
+        plain English and get the insight that matters.
+      </p>
+
+      <div class="hero-actions">
+        <a href="#early-access" class="btn-primary">Get Early Access</a>
+        <a href="#how" class="btn-ghost">See how it works ↓</a>
+      </div>
+
+      <div class="hero-stats">
+        <div>
+          <div class="stat-val">30s</div>
+          <div class="stat-label">from question to answer</div>
+        </div>
+        <div>
+          <div class="stat-val">0</div>
+          <div class="stat-label">SQL knowledge required</div>
+        </div>
+        <div>
+          <div class="stat-val">3</div>
+          <div class="stat-label">signals, one conversation</div>
+        </div>
+        <div>
+          <div class="stat-val">90%</div>
+          <div class="stat-label">less time to root cause</div>
+        </div>
+      </div>
+
+      <!-- Terminal -->
+      <div class="hero-terminal">
+        <div class="terminal-bar">
+          <div class="terminal-dot t-red"></div>
+          <div class="terminal-dot t-yellow"></div>
+          <div class="terminal-dot t-green"></div>
+          <span class="terminal-title">lantern — live analysis</span>
+        </div>
+        <div class="terminal-body">
+          <div class="t-comment"># A product manager asks a question</div>
+          <div>
+            <span class="t-prompt">you → </span
+            ><span class="t-cmd">is checkout working today?</span>
+          </div>
+          <br />
+          <div class="t-dim">── analyzing performance ──</div>
+          <div class="t-out">→ 98.7% of checkouts completing normally</div>
+          <div class="t-out">→ avg response time: 240ms (within target)</div>
+          <br />
+          <div class="t-dim">── found 1 issue ──</div>
+          <div class="t-err">→ payment failures spiked 12× at 09:14</div>
+          <div class="t-out">→ resolved by 09:31 (17 min impact)</div>
+          <br />
+          <div class="t-dim">── business impact ──</div>
+          <div class="t-out">→ ~340 customers affected</div>
+          <div class="t-out">→ no impact since resolution</div>
+          <br />
+          <div>
+            <span class="t-highlight">lantern → </span
+            ><span class="t-cmd">Checkout is healthy now.</span>
+          </div>
+          <div class="t-cmd">
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Brief
+            payment issue 09:14–09:31,
+          </div>
+          <div class="t-cmd">
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;~340
+            customers affected.
+          </div>
+          <div class="t-cmd">
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;All
+            systems normal since.
+          </div>
+          <br />
+          <div>
+            <span class="t-prompt">you → </span
+            ><span class="cursor-blink"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PROBLEM -->
+    <section class="problem" id="benefits">
+      <div class="section-tag">The problem</div>
+      <h2 class="section-title">
+        Your production data is <em>locked away</em><br />behind engineers and
+        dashboards.
+      </h2>
+      <p class="section-sub">
+        When something goes wrong in production, the people who need answers
+        fastest — PMs, support leads, executives — can't get them without filing
+        a ticket.
+      </p>
+
+      <div class="problem-grid reveal">
+        <div class="problem-list">
+          <div class="problem-item">
+            <span class="problem-num">01</span>
+            <div class="problem-text">
+              <strong>"Can someone check if payments are down?"</strong>
+              <p>
+                A support lead sees a spike in customer complaints. They Slack
+                an engineer. The engineer is in a meeting. Twenty minutes pass
+                before anyone even looks. With Lantern, they'd have the answer
+                in 30 seconds.
+              </p>
+            </div>
+          </div>
+          <div class="problem-item">
+            <span class="problem-num">02</span>
+            <div class="problem-text">
+              <strong>"How did last week's deploy affect performance?"</strong>
+              <p>
+                A PM needs to know if the latest release made things faster or
+                slower. Today that's a Jira ticket and a 2-day turnaround. It
+                should be a question you can ask and get answered immediately.
+              </p>
+            </div>
+          </div>
+          <div class="problem-item">
+            <span class="problem-num">03</span>
+            <div class="problem-text">
+              <strong>"Why does our observability bill keep growing?"</strong>
+              <p>
+                Traditional tools charge per host, per GB, per seat. More
+                success means higher bills — for data you can barely access.
+                You're paying premium prices for a system only a few people can
+                actually use.
+              </p>
+            </div>
+          </div>
+          <div class="problem-item">
+            <span class="problem-num">04</span>
+            <div class="problem-text">
+              <strong
+                >"Can we cross-reference system data with our
+                spreadsheet?"</strong
+              >
+              <p>
+                Business teams live in spreadsheets. Production data lives in
+                monitoring tools. Combining them requires a data engineer. Most
+                of the time, the insight just never happens.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="calc-card" id="savings">
+          <div class="calc-title">Time savings calculator</div>
+
+          <div class="calc-inputs">
+            <div class="calc-row">
+              <label class="calc-input-label" for="c-questions"
+                >Data questions your team asks engineering per week</label
+              >
+              <div class="calc-input-wrap">
+                <input
+                  type="number"
+                  class="calc-input"
+                  id="c-questions"
+                  value="15"
+                  min="1"
+                  max="200"
+                />
+                <span class="calc-input-unit">/ week</span>
+              </div>
+            </div>
+            <div class="calc-row">
+              <label class="calc-input-label" for="c-minutes"
+                >Avg time an engineer spends per question</label
+              >
+              <div class="calc-input-wrap">
+                <input
+                  type="number"
+                  class="calc-input"
+                  id="c-minutes"
+                  value="45"
+                  min="5"
+                  max="480"
+                  step="5"
+                />
+                <span class="calc-input-unit">minutes</span>
+              </div>
+            </div>
+            <div class="calc-row">
+              <label class="calc-input-label" for="c-rate"
+                >Avg engineer hourly cost (fully loaded)</label
+              >
+              <div class="calc-input-wrap">
+                <span class="calc-input-prefix">$</span>
+                <input
+                  type="number"
+                  class="calc-input"
+                  id="c-rate"
+                  value="120"
+                  min="30"
+                  max="500"
+                  step="10"
+                />
+                <span class="calc-input-unit">/ hr</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="calc-output">
+            <div class="calc-output-title">Without Lantern</div>
+            <div class="calc-line">
+              <span>Engineer hours spent</span>
+              <span class="calc-line-val bad" id="co-hours">11.3 hrs/wk</span>
+            </div>
+            <div class="calc-line">
+              <span>Weekly cost</span>
+              <span class="calc-line-val bad" id="co-cost">$1,350/wk</span>
+            </div>
+
+            <div class="calc-output-title" style="margin-top: 16px">
+              With Lantern
+            </div>
+            <div class="calc-line">
+              <span>Self-served by non-engineers</span>
+              <span class="calc-line-val good" id="co-selfserve">~60%</span>
+            </div>
+            <div class="calc-line">
+              <span>Remaining engineer time</span>
+              <span class="calc-line-val good" id="co-remaining"
+                >4.5 hrs/wk</span
+              >
+            </div>
+            <div class="calc-line" style="border-bottom: none">
+              <span>Weekly cost</span>
+              <span class="calc-line-val good" id="co-newcost">$540/wk</span>
+            </div>
+          </div>
+
+          <div class="calc-bottom">
+            <div class="calc-bottom-row">
+              <div>
+                <div class="calc-bottom-number" id="co-saved-hrs">6.8</div>
+                <div class="calc-bottom-label">hrs / week saved</div>
+              </div>
+              <div>
+                <div class="calc-bottom-number" id="co-saved-money">$810</div>
+                <div class="calc-bottom-label">/ week saved</div>
+              </div>
+              <div>
+                <div class="calc-bottom-number" id="co-saved-year">$42k</div>
+                <div class="calc-bottom-label">/ year saved</div>
+              </div>
+            </div>
+            <div class="calc-bottom-note" id="co-note">
+              Based on 60% of questions being handled without engineering
+              involvement.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- COST COMPARISON -->
+    <section class="cost-compare" id="pricing">
+      <div class="section-tag">The real cost</div>
+      <h2 class="section-title">
+        Your observability bill is <em>growing</em><br />faster than your
+        infrastructure.
+      </h2>
+      <p class="section-sub">
+        Other providers charge per host, per GB, and per seat. More growth means
+        higher bills — for data most of your team can't even access.
+      </p>
+
+      <div class="cost-grid reveal">
+        <!-- Other providers -->
+        <div class="cost-card traditional">
+          <div class="cost-card-header">
+            <span class="cost-card-title">Other observability providers</span>
+            <span class="cost-card-badge">per-host pricing</span>
+          </div>
+
+          <div class="cost-inputs">
+            <div class="cost-inputs-title">Your infrastructure</div>
+            <div class="cost-input-row">
+              <label class="cost-input-label" for="cc-hosts"
+                >Hosts / servers</label
+              >
+              <div class="cost-input-wrap">
+                <input
+                  type="number"
+                  class="cost-input"
+                  id="cc-hosts"
+                  value="100"
+                  min="1"
+                  max="5000"
+                />
+                <span class="cost-input-unit">hosts</span>
+              </div>
+            </div>
+            <div class="cost-input-row">
+              <label class="cost-input-label" for="cc-logs"
+                >Log volume ingested</label
+              >
+              <div class="cost-input-wrap">
+                <input
+                  type="number"
+                  class="cost-input"
+                  id="cc-logs"
+                  value="500"
+                  min="1"
+                  max="10000"
+                />
+                <span class="cost-input-unit">GB / month</span>
+              </div>
+            </div>
+            <div class="cost-input-row">
+              <label class="cost-input-label" for="cc-seats"
+                >Team members who need access</label
+              >
+              <div class="cost-input-wrap">
+                <input
+                  type="number"
+                  class="cost-input"
+                  id="cc-seats"
+                  value="15"
+                  min="1"
+                  max="500"
+                />
+                <span class="cost-input-unit">seats</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cost-breakdown">
+            <div class="cost-breakdown-title">Monthly breakdown</div>
+            <div class="cost-line">
+              <div>
+                <span class="cost-line-label">Infrastructure monitoring</span>
+                <div class="cost-line-detail" id="cc-infra-detail">
+                  100 hosts × $15/host
+                </div>
+              </div>
+              <span class="cost-line-val" id="cc-infra">$1,500</span>
+            </div>
+            <div class="cost-line">
+              <div>
+                <span class="cost-line-label">APM / tracing</span>
+                <div class="cost-line-detail" id="cc-apm-detail">
+                  100 hosts × $31/host
+                </div>
+              </div>
+              <span class="cost-line-val" id="cc-apm">$3,100</span>
+            </div>
+            <div class="cost-line">
+              <div>
+                <span class="cost-line-label">Log ingestion</span>
+                <div class="cost-line-detail" id="cc-log-detail">
+                  500 GB × $0.10/GB
+                </div>
+              </div>
+              <span class="cost-line-val" id="cc-logcost">$50</span>
+            </div>
+            <div class="cost-line">
+              <div>
+                <span class="cost-line-label"
+                  >Log indexing &amp; retention</span
+                >
+                <div class="cost-line-detail" id="cc-index-detail">
+                  ~500M events × $1.70/M
+                </div>
+              </div>
+              <span class="cost-line-val" id="cc-indexcost">$850</span>
+            </div>
+            <div class="cost-line">
+              <div>
+                <span class="cost-line-label">Custom metrics</span>
+                <div class="cost-line-detail" id="cc-metrics-detail">
+                  100 hosts × ~500 metrics × $0.05
+                </div>
+              </div>
+              <span class="cost-line-val" id="cc-metricscost">$2,500</span>
+            </div>
+            <div class="cost-line" style="border-bottom: none">
+              <div>
+                <span class="cost-line-label">Additional seats</span>
+                <div class="cost-line-detail" id="cc-seat-detail">
+                  15 seats × $30/seat
+                </div>
+              </div>
+              <span class="cost-line-val" id="cc-seatcost">$450</span>
+            </div>
+          </div>
+
+          <div class="cost-total">
+            <span class="cost-total-label">Total</span>
+            <div>
+              <span class="cost-total-val" id="cc-total">$8,450</span>
+              <span class="cost-total-period">/ month</span>
+            </div>
+          </div>
+          <div class="cost-annual" id="cc-annual">$101,400 / year</div>
+        </div>
+
+        <!-- Lantern -->
+        <div class="cost-card lantern">
+          <div class="cost-card-header">
+            <span class="cost-card-title">Lantern</span>
+            <span class="cost-card-badge">simple pricing</span>
+          </div>
+
+          <div class="lantern-feature-list">
+            <div class="lantern-feature-item">
+              <span class="lantern-feature-check">&#10003;</span>
+              No per-host fees — monitor everything
+            </div>
+            <div class="lantern-feature-item">
+              <span class="lantern-feature-check">&#10003;</span>
+              Unlimited seats — your whole team gets access
+            </div>
+            <div class="lantern-feature-item">
+              <span class="lantern-feature-check">&#10003;</span>
+              Traces, logs, and metrics included
+            </div>
+            <div class="lantern-feature-item">
+              <span class="lantern-feature-check">&#10003;</span>
+              AI-powered natural language analysis
+            </div>
+            <div class="lantern-feature-item">
+              <span class="lantern-feature-check">&#10003;</span>
+              No query language to learn
+            </div>
+          </div>
+
+          <div class="lantern-price-note">
+            Simple, predictable pricing.<br />
+            No surprises when you scale.<br />
+            <a
+              href="#early-access"
+              style="
+                color: var(--amber);
+                text-decoration: none;
+                font-style: normal;
+                font-weight: 700;
+                font-size: 0.7rem;
+                letter-spacing: 1px;
+              "
+              >GET EARLY ACCESS →</a
+            >
+          </div>
+        </div>
+      </div>
+
+      <div class="cost-savings-banner reveal">
+        <div class="cost-savings-amount" id="cc-savings">$46,200</div>
+        <div class="cost-savings-label">potential annual savings</div>
+        <div class="cost-savings-note">
+          Based on publicly available pricing from other per-host observability
+          providers. Rates: $15/host infra, $31/host APM, $0.10/GB log
+          ingestion, $1.70/M log indexing, $0.05/custom metric, $30/seat. Actual
+          costs vary by contract and volume.
+        </div>
+      </div>
+    </section>
+
+    <!-- HOW IT WORKS -->
+    <section class="how-it-works" id="how">
+      <div class="section-tag">How it works</div>
+      <h2 class="section-title">
+        Three steps from question<br />to <em>answer.</em>
+      </h2>
+      <p class="section-sub">
+        No query language to learn. No dashboards to build. Just ask what you
+        need to know.
+      </p>
+
+      <div class="steps-grid reveal">
+        <div class="steps-list">
+          <div class="step-item">
+            <div class="step-num">01</div>
+            <div class="step-text">
+              <strong>Connect your systems</strong>
+              <p>
+                Point Lantern at your infrastructure. It works with the tools
+                you already use — no rip-and-replace, no migration headaches. Up
+                and running in minutes.
+              </p>
+            </div>
+          </div>
+          <div class="step-item">
+            <div class="step-num">02</div>
+            <div class="step-text">
+              <strong>Ask in plain English</strong>
+              <p>
+                "What's causing slow checkouts?" or "Compare this week's error
+                rate to last week" or "Which service has the most failures?"
+                Just type what you want to know.
+              </p>
+            </div>
+          </div>
+          <div class="step-item">
+            <div class="step-num">03</div>
+            <div class="step-text">
+              <strong>Get clear, actionable answers</strong>
+              <p>
+                Lantern investigates across your traces, logs, and metrics — and
+                returns evidence-backed answers with tables, summaries, and
+                business context. Not raw data dumps.
+              </p>
+            </div>
+          </div>
+          <div class="step-item">
+            <div class="step-num">04</div>
+            <div class="step-text">
+              <strong>Follow up naturally</strong>
+              <p>
+                Every answer is the start of a conversation. Ask follow-ups,
+                drill deeper, explore different angles. Lantern remembers
+                context so you don't have to repeat yourself.
+              </p>
+            </div>
+          </div>
+          <div class="step-item">
+            <div class="step-num">05</div>
+            <div class="step-text">
+              <strong>Bring your own data (coming soon)</strong>
+              <p>
+                Upload a CSV or spreadsheet and cross-reference it with your
+                production data. Customer lists, deploy logs, business metrics —
+                all queryable in one place.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="demo-visual">
+          <div class="demo-header">
+            <div class="demo-dot"></div>
+            Live analysis session
+          </div>
+          <div class="demo-body">
+            <div class="demo-q">"why did error rates spike this morning?"</div>
+            <div class="demo-step">
+              <div class="demo-step-label">→ Checking error trends</div>
+              <div class="demo-finding">
+                ↳ Error rate jumped from 0.3% to 14.2% at 09:12
+              </div>
+            </div>
+            <div class="demo-step">
+              <div class="demo-step-label">→ Identifying affected services</div>
+              <div class="demo-finding">↳ payment-service: 4,821 failures</div>
+              <div class="demo-finding">
+                ↳ order-service: 342 failures (downstream)
+              </div>
+            </div>
+            <div class="demo-step">
+              <div class="demo-step-label">→ Analyzing error messages</div>
+              <div class="demo-finding">
+                ↳ "connection pool exhausted" — 4,819 occurrences
+              </div>
+            </div>
+            <div class="demo-step">
+              <div class="demo-step-label">→ Checking recent history</div>
+              <div class="demo-finding">
+                ↳ Similar pattern found Nov 3 (resolved by config change)
+              </div>
+            </div>
+            <div class="demo-conclusion">
+              Payment service hit its connection limit at 09:12, causing
+              cascading failures in order service. This happened before on Nov 3
+              and was resolved by increasing the pool size. 340 customers were
+              affected over 17 minutes.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FEATURES -->
+    <section class="features" id="features">
+      <div class="section-tag">Capabilities</div>
+      <h2 class="section-title">
+        Everything your team needs.<br /><em
+          >Nothing they'll need training for.</em
+        >
+      </h2>
+
+      <div class="features-grid reveal">
+        <div class="feature">
+          <div class="feature-num">01 —</div>
+          <span class="feature-icon">💬</span>
+          <h3 class="feature-title">Natural language investigation</h3>
+          <p class="feature-body">
+            Ask questions the way you'd ask a colleague. "What's slow?" "Are
+            there errors in checkout?" "How does this week compare to last
+            week?" Lantern translates your questions into analysis and returns
+            clear answers.
+          </p>
+          <span class="feature-tag">no SQL required</span>
+        </div>
+        <div class="feature">
+          <div class="feature-num">02 —</div>
+          <span class="feature-icon">🔗</span>
+          <h3 class="feature-title">All signals, one conversation</h3>
+          <p class="feature-body">
+            Traces, logs, and metrics — analyzed together in a single session.
+            No switching between three different tools. Ask about performance
+            and errors in the same breath.
+          </p>
+          <span class="feature-tag">unified</span>
+        </div>
+        <div class="feature">
+          <div class="feature-num">03 —</div>
+          <span class="feature-icon">🧠</span>
+          <h3 class="feature-title">AI that investigates, not just answers</h3>
+          <p class="feature-body">
+            Lantern doesn't just look up data. It reasons through problems —
+            checking baselines, isolating anomalies, correlating across
+            services, and finding historical patterns.
+          </p>
+          <span class="feature-tag">multi-step reasoning</span>
+        </div>
+        <div class="feature">
+          <div class="feature-num">04 —</div>
+          <span class="feature-icon">📊</span>
+          <h3 class="feature-title">Business-ready answers</h3>
+          <p class="feature-body">
+            Results come back as formatted tables, summaries, and narratives —
+            not raw data dumps. Share findings directly with stakeholders
+            without needing to reformat anything.
+          </p>
+          <span class="feature-tag">presentation-ready</span>
+        </div>
+        <div class="feature">
+          <div class="feature-num">05 —</div>
+          <span class="feature-icon">🔒</span>
+          <h3 class="feature-title">Private analysis sessions</h3>
+          <p class="feature-body">
+            Each analysis runs in an isolated session with only the data you
+            scoped. No risk of accidentally querying the wrong environment. No
+            impact on production systems.
+          </p>
+          <span class="feature-tag">sandboxed</span>
+        </div>
+        <div class="feature">
+          <div class="feature-num">06 —</div>
+          <span class="feature-icon">📁</span>
+          <h3 class="feature-title">Bring your own files (coming soon)</h3>
+          <p class="feature-body">
+            Upload CSVs, spreadsheets, or any tabular data and cross-reference
+            it with production telemetry. Customer lists, deploy logs, business
+            metrics — all queryable together.
+          </p>
+          <span class="feature-tag">coming soon</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- USE CASES -->
+    <section class="use-cases">
+      <div class="section-tag">Who it's for</div>
+      <h2 class="section-title">
+        Built for the people who need answers<br /><em
+          >but can't write queries.</em
+        >
+      </h2>
+
+      <div class="use-cases-grid reveal">
+        <div class="use-case">
+          <span class="use-case-icon">🎧</span>
+          <div class="use-case-persona">Support Lead</div>
+          <h3 class="use-case-title">
+            Resolve escalations without engineering
+          </h3>
+          <p class="use-case-body">
+            When customers report issues, check production health yourself. No
+            waiting for an engineer to context-switch from their sprint work.
+          </p>
+          <div class="use-case-example">
+            "Are there any payment failures in the last hour for customers in
+            Europe?"
+          </div>
+        </div>
+        <div class="use-case">
+          <span class="use-case-icon">📋</span>
+          <div class="use-case-persona">Product Manager</div>
+          <h3 class="use-case-title">Measure feature impact instantly</h3>
+          <p class="use-case-body">
+            Shipped a new feature? Check its performance, error rate, and user
+            impact yourself — right after deploy, not days later in a report.
+          </p>
+          <div class="use-case-example">
+            "How is the new search feature performing compared to last week?"
+          </div>
+        </div>
+        <div class="use-case">
+          <span class="use-case-icon">📈</span>
+          <div class="use-case-persona">Engineering Manager</div>
+          <h3 class="use-case-title">
+            System health without the dashboard maze
+          </h3>
+          <p class="use-case-body">
+            Get a system overview before standup. Understand incidents without
+            digging through monitoring tools. Ask the question, get the summary.
+          </p>
+          <div class="use-case-example">
+            "Give me a health summary of all services for the last 24 hours."
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- BEFORE / AFTER -->
+    <section class="before-after">
+      <div class="section-tag">The shift</div>
+      <h2 class="section-title">
+        From bottleneck<br />to <em>self-service.</em>
+      </h2>
+      <p class="section-sub">
+        See what changes when everyone on your team can investigate production
+        data directly.
+      </p>
+
+      <div class="ba-grid reveal">
+        <div class="ba-col before">
+          <div class="ba-col-title">Without Lantern</div>
+          <div class="ba-item">
+            Support Slacks an engineer: "is checkout broken?"
+          </div>
+          <div class="ba-item">
+            Engineer stops their work, opens monitoring tools
+          </div>
+          <div class="ba-item">
+            Switches between 3 dashboards to correlate data
+          </div>
+          <div class="ba-item">Writes a custom query to check error rates</div>
+          <div class="ba-item">Copies results into Slack, adds context</div>
+          <div class="ba-item">Total time: 20–45 minutes</div>
+          <div class="ba-item">Engineer lost: 1+ hour of focus</div>
+        </div>
+        <div class="ba-divider">→</div>
+        <div class="ba-col after">
+          <div class="ba-col-title">With Lantern</div>
+          <div class="ba-item">
+            Support opens Lantern: "is checkout broken?"
+          </div>
+          <div class="ba-item">Gets instant answer with evidence</div>
+          <div class="ba-item">
+            Asks follow-up: "how many customers affected?"
+          </div>
+          <div class="ba-item">Gets count, time window, resolution status</div>
+          <div class="ba-item">Shares the summary with the team</div>
+          <div class="ba-item">Total time: 2 minutes</div>
+          <div class="ba-item">Engineers stay focused on building</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- EARLY ACCESS -->
+    <section class="early-access" id="early-access">
+      <div class="ea-badge">Early Access</div>
+      <h2>Be the first to try<br /><em>Lantern.</em></h2>
+      <p class="section-sub">
+        We're onboarding a small group of teams for early access. Pricing will
+        be simple, predictable, and nothing like the per-host, per-GB model
+        you're used to.
+      </p>
+      <form
+        class="ea-form"
+        onsubmit="
+          event.preventDefault();
+          this.innerHTML =
+            '<div style=\'padding:14px;color:var(--green);font-size:0.75rem;\'>Thanks! We\'ll be in touch.</div>';
+        "
+      >
+        <input
+          type="email"
+          class="ea-input"
+          placeholder="you@company.com"
+          required
+        />
+        <button type="submit" class="btn-primary">Join waitlist</button>
+      </form>
+    </section>
+
+    <!-- FOOTER CTA -->
+    <section class="footer-cta">
+      <div class="footer-cta-glow"></div>
+      <h2>Stop waiting on engineers<br />for <em>your own answers.</em></h2>
+      <p>
+        Lantern gives everyone on your team the ability to investigate
+        production systems using natural language — without writing a single
+        line of code.
+      </p>
+      <div class="footer-actions">
+        <a href="#early-access" class="btn-primary">Get Early Access</a>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer>
+      <div class="footer-brand">
+        <div class="logo" style="font-size: 1.1rem; margin-bottom: 10px">
+          <svg
+            viewBox="0 0 24 28"
+            fill="none"
+            style="width: 20px; height: 24px"
+          >
+            <path
+              d="M12 2L12 8"
+              stroke="#f0a030"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
+            <rect
+              x="7"
+              y="10"
+              width="10"
+              height="14"
+              rx="1"
+              stroke="#f0a030"
+              stroke-width="1.5"
+            />
+            <rect
+              x="9"
+              y="12"
+              width="6"
+              height="2"
+              rx="0.5"
+              fill="#f0a030"
+              opacity="0.4"
+            />
+          </svg>
+          Lantern
+        </div>
+        <p>
+          Production intelligence for your whole team, not just your engineers.
+        </p>
+      </div>
+      <div>
+        <div class="footer-col-title">Product</div>
+        <ul class="footer-links">
+          <li><a href="#benefits">Benefits</a></li>
+          <li><a href="#features">Features</a></li>
+          <li><a href="#how">How it works</a></li>
+          <li><a href="#savings">Savings</a></li>
+        </ul>
+      </div>
+      <div>
+        <div class="footer-col-title">Resources</div>
+        <ul class="footer-links">
+          <li><a href="#">Documentation</a></li>
+          <li><a href="#">Blog</a></li>
+          <li><a href="#">Changelog</a></li>
+        </ul>
+      </div>
+      <div>
+        <div class="footer-col-title">Company</div>
+        <ul class="footer-links">
+          <li><a href="#">About</a></li>
+          <li><a href="#">Privacy</a></li>
+          <li><a href="#">Terms</a></li>
+          <li><a href="#">Contact</a></li>
+        </ul>
+      </div>
+    </footer>
+
+    <script>
+      // Custom cursor
+      const cursor = document.getElementById("cursor");
+      const ring = document.getElementById("cursorRing");
+      let mx = 0,
+        my = 0,
+        rx = 0,
+        ry = 0;
+
+      document.addEventListener("mousemove", (e) => {
+        mx = e.clientX;
+        my = e.clientY;
+        cursor.style.left = mx + "px";
+        cursor.style.top = my + "px";
+      });
+
+      function animRing() {
+        rx += (mx - rx) * 0.12;
+        ry += (my - ry) * 0.12;
+        ring.style.left = rx + "px";
+        ring.style.top = ry + "px";
+        requestAnimationFrame(animRing);
+      }
+      animRing();
+
+      document
+        .querySelectorAll("a, button, .feature, .use-case, input")
+        .forEach((el) => {
+          el.addEventListener("mouseenter", () => {
+            cursor.style.width = "12px";
+            cursor.style.height = "12px";
+            ring.style.width = "48px";
+            ring.style.height = "48px";
+            ring.style.opacity = "0.6";
+          });
+          el.addEventListener("mouseleave", () => {
+            cursor.style.width = "8px";
+            cursor.style.height = "8px";
+            ring.style.width = "32px";
+            ring.style.height = "32px";
+            ring.style.opacity = "1";
+          });
+        });
+
+      // Scroll reveal
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((e, i) => {
+            if (e.isIntersecting) {
+              setTimeout(() => e.target.classList.add("visible"), i * 80);
+            }
+          });
+        },
+        { threshold: 0.1 },
+      );
+
+      document
+        .querySelectorAll(".reveal")
+        .forEach((el) => observer.observe(el));
+
+      // Stagger children
+      document
+        .querySelectorAll(
+          ".features-grid .feature, .use-cases-grid .use-case, .problem-item, .step-item",
+        )
+        .forEach((el, i) => {
+          el.style.transitionDelay = (i % 4) * 0.08 + "s";
+        });
+
+      // Calculator
+      const cQuestions = document.getElementById("c-questions");
+      const cMinutes = document.getElementById("c-minutes");
+      const cRate = document.getElementById("c-rate");
+
+      function calc() {
+        const questions = Math.max(1, parseInt(cQuestions.value) || 15);
+        const minutes = Math.max(5, parseInt(cMinutes.value) || 45);
+        const rate = Math.max(30, parseInt(cRate.value) || 120);
+
+        // Current state
+        const totalMinutes = questions * minutes;
+        const totalHours = totalMinutes / 60;
+        const weeklyCost = totalHours * rate;
+
+        // With Lantern: 60% self-served, remaining questions 50% faster
+        const selfServeRate = 0.6;
+        const speedup = 0.5;
+        const remainingQuestions = questions * (1 - selfServeRate);
+        const remainingMinutes = remainingQuestions * minutes * speedup;
+        const remainingHours = remainingMinutes / 60;
+        const newCost = remainingHours * rate;
+
+        const savedHours = totalHours - remainingHours;
+        const savedCost = weeklyCost - newCost;
+        const savedYear = savedCost * 50;
+
+        document.getElementById("co-hours").textContent =
+          totalHours.toFixed(1) + " hrs/wk";
+        document.getElementById("co-cost").textContent =
+          "$" + Math.round(weeklyCost).toLocaleString() + "/wk";
+        document.getElementById("co-selfserve").textContent =
+          "~" + Math.round(selfServeRate * 100) + "%";
+        document.getElementById("co-remaining").textContent =
+          remainingHours.toFixed(1) + " hrs/wk";
+        document.getElementById("co-newcost").textContent =
+          "$" + Math.round(newCost).toLocaleString() + "/wk";
+        document.getElementById("co-saved-hrs").textContent =
+          savedHours.toFixed(1);
+        document.getElementById("co-saved-money").textContent =
+          "$" + Math.round(savedCost).toLocaleString();
+        document.getElementById("co-saved-year").textContent =
+          savedYear >= 1000
+            ? "$" + Math.round(savedYear / 1000) + "k"
+            : "$" + Math.round(savedYear).toLocaleString();
+      }
+
+      cQuestions.addEventListener("input", calc);
+      cMinutes.addEventListener("input", calc);
+      cRate.addEventListener("input", calc);
+      calc();
+
+      // Cost comparison calculator
+      const ccHosts = document.getElementById("cc-hosts");
+      const ccLogs = document.getElementById("cc-logs");
+      const ccSeats = document.getElementById("cc-seats");
+
+      function calcCost() {
+        const hosts = Math.max(1, parseInt(ccHosts.value) || 100);
+        const logs = Math.max(1, parseInt(ccLogs.value) || 500);
+        const seats = Math.max(1, parseInt(ccSeats.value) || 15);
+
+        // Rates based on publicly available pricing
+        const infraRate = 15; // per host/month
+        const apmRate = 31; // per host/month
+        const logIngestRate = 0.1; // per GB ingested
+        const logIndexRate = 1.7; // per million events indexed
+        const metricRate = 0.05; // per custom metric/month
+        const seatRate = 30; // per seat/month
+
+        // Derived quantities
+        const eventsPerGB = 1000000; // ~1M events per GB (conservative)
+        const metricsPerHost = 500; // typical custom metrics per host
+
+        const infraCost = hosts * infraRate;
+        const apmCost = hosts * apmRate;
+        const logIngestCost = logs * logIngestRate;
+        const totalEvents = logs * eventsPerGB;
+        const logIndexCost = (totalEvents / 1000000) * logIndexRate;
+        const metricsCost = hosts * metricsPerHost * metricRate;
+        const seatCost = seats * seatRate;
+        const total =
+          infraCost +
+          apmCost +
+          logIngestCost +
+          logIndexCost +
+          metricsCost +
+          seatCost;
+        const annual = total * 12;
+
+        document.getElementById("cc-infra-detail").textContent =
+          hosts + " hosts × $" + infraRate + "/host";
+        document.getElementById("cc-apm-detail").textContent =
+          hosts + " hosts × $" + apmRate + "/host";
+        document.getElementById("cc-log-detail").textContent =
+          logs + " GB × $" + logIngestRate.toFixed(2) + "/GB";
+        document.getElementById("cc-index-detail").textContent =
+          "~" +
+          Math.round(totalEvents / 1000000) +
+          "M events × $" +
+          logIndexRate.toFixed(2) +
+          "/M";
+        document.getElementById("cc-metrics-detail").textContent =
+          hosts +
+          " hosts × ~" +
+          metricsPerHost +
+          " metrics × $" +
+          metricRate.toFixed(2);
+        document.getElementById("cc-seat-detail").textContent =
+          seats + " seats × $" + seatRate + "/seat";
+
+        document.getElementById("cc-infra").textContent =
+          "$" + Math.round(infraCost).toLocaleString();
+        document.getElementById("cc-apm").textContent =
+          "$" + Math.round(apmCost).toLocaleString();
+        document.getElementById("cc-logcost").textContent =
+          "$" + Math.round(logIngestCost).toLocaleString();
+        document.getElementById("cc-indexcost").textContent =
+          "$" + Math.round(logIndexCost).toLocaleString();
+        document.getElementById("cc-metricscost").textContent =
+          "$" + Math.round(metricsCost).toLocaleString();
+        document.getElementById("cc-seatcost").textContent =
+          "$" + Math.round(seatCost).toLocaleString();
+
+        document.getElementById("cc-total").textContent =
+          "$" + Math.round(total).toLocaleString();
+        document.getElementById("cc-annual").textContent =
+          "$" + Math.round(annual).toLocaleString() + " / year";
+
+        document.getElementById("cc-savings").textContent =
+          annual >= 1000
+            ? "$" + Math.round(annual / 1000) + "k+"
+            : "$" + Math.round(annual).toLocaleString();
+      }
+
+      ccHosts.addEventListener("input", calcCost);
+      ccLogs.addEventListener("input", calcCost);
+      ccSeats.addEventListener("input", calcCost);
+      calcCost();
+    </script>
+  </body>
+</html>
