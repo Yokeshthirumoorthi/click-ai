@@ -17,26 +17,26 @@ receivers:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317 # your app connects here
+        max_recv_msg_size_mib: 64 # allow large batches from load generator
       http:
         endpoint: 0.0.0.0:4318 # or here if using HTTP
 
 processors:
   # ── Batch processor ────────────────────────────────────────
-  # Instead of writing every single event one by one (slow!),
-  # the collector waits and groups them into batches.
-  # 5000 events OR 5 seconds — whichever comes first → flush.
+  # Groups events into large batches for efficient S3 writes.
+  # 50k events OR 1 second — whichever comes first → flush.
   batch:
-    send_batch_size: 5000 # flush after 5000 events
-    timeout: 5s # or after 5 seconds
-    send_batch_max_size: 10000 # never exceed 10000 per batch
+    send_batch_size: 50000 # flush after 50k events
+    timeout: 1s # or after 1 second
+    send_batch_max_size: 100000 # never exceed 100k per batch
 
   # ── Memory limiter ─────────────────────────────────────────
   # Safety valve: if the collector is using too much RAM,
   # it starts dropping events rather than crashing.
   memory_limiter:
     check_interval: 1s
-    limit_mib: 2048 # 2GB max for the collector process
-    spike_limit_mib: 512
+    limit_mib: 8192 # 8GB max for the collector process
+    spike_limit_mib: 2048
 
 exporters:
   # ── S3 exporters (write OTLP JSON to MinIO) ──────────────
@@ -72,12 +72,6 @@ exporters:
       file_prefix: otlp_
     marshaler: otlp_json
 
-  # ── Debug logger (optional) ────────────────────────────────
-  # Prints events to the collector's stdout so you can verify
-  # data is flowing. Remove or set to "none" in production.
-  debug:
-    verbosity: basic # options: basic | normal | detailed
-
 extensions:
   # Health check endpoint — used by Docker healthcheck
   health_check:
@@ -99,16 +93,16 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [awss3/traces, debug]
+      exporters: [awss3/traces]
 
     # METRICS pipeline: counters/gauges → S3 (OTLP JSON)
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [awss3/metrics, debug]
+      exporters: [awss3/metrics]
 
     # LOGS pipeline: app logs → S3 (OTLP JSON)
     logs:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [awss3/logs, debug]
+      exporters: [awss3/logs]

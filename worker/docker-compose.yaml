@@ -18,7 +18,8 @@ services:
       CH_USER: ${CH_USER:-admin}
       CH_PASSWORD: ${CH_PASSWORD:-clickhouse123}
       CH_DATABASE: ${CH_DATABASE:-otel}
-      POLL_INTERVAL: "10"
+      BATCH_SIZE: "50000"
+      MAX_FILE_WORKERS: "16"
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -36,8 +37,15 @@ services:
       CH_USER: ${CH_USER:-admin}
       CH_PASSWORD: ${CH_PASSWORD:-clickhouse123}
       CH_DATABASE: ${CH_DATABASE:-otel}
-      POLL_INTERVAL: "15"
-      BATCH_SIZE: "256"
+      POLL_INTERVAL: "1"
+      BATCH_SIZE: "4096"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     depends_on:
       clickhouse:
         condition: service_healthy

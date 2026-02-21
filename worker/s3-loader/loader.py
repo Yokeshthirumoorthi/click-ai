@@ -1,10 +1,20 @@
 """
 S3 Loader: reads OTLP JSON files from S3, unpacks traces/metrics/logs envelopes
 into flat rows, bulk-inserts into ClickHouse, and tracks progress via watermark tables.
+
+Architecture:
+  Main thread
+  ├── Signal thread: traces    ─── ThreadPoolExecutor(N) ─── download + parse files
+  ├── Signal thread: logs      ─── ThreadPoolExecutor(N) ─── download + parse files
+  └── Signal thread: metrics   ─── ThreadPoolExecutor(N) ─── download + parse files
+
+Each signal pipeline runs independently with adaptive polling (fast when busy, slow when idle).
 """
 
 import logging
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 import boto3
@@ -340,18 +350,22 @@ METRIC_COLUMNS = [
 ]
 
 
-# ── Generic insert / watermark / processing ────────────────────
+# ── Columnar insert helpers ────────────────────────────────────
+
+def _rows_to_columns(rows: list[dict], columns: list[str]) -> list[list]:
+    """Convert list of row dicts to columnar format for clickhouse-connect."""
+    return [[row[col] for row in rows] for col in columns]
+
 
 def insert_rows(ch, table: str, columns: list[str], rows: list[dict]):
-    """Bulk insert rows into a ClickHouse table."""
+    """Bulk insert rows into a ClickHouse table using columnar format."""
     if not rows:
         return
 
-    data = [[row[col] for col in columns] for row in rows]
-
-    for i in range(0, len(data), config.BATCH_SIZE):
-        batch = data[i : i + config.BATCH_SIZE]
-        ch.insert(table, batch, column_names=columns)
+    for i in range(0, len(rows), config.BATCH_SIZE):
+        batch = rows[i : i + config.BATCH_SIZE]
+        col_data = _rows_to_columns(batch, columns)
+        ch.insert(table, col_data, column_names=columns, column_oriented=True)
 
 
 def record_watermark(ch, watermark_table: str, filename: str, status: str, row_count: int, error_msg: str = ""):
@@ -396,57 +410,89 @@ SIGNAL_PIPELINES = [
 ]
 
 
-def process_file(s3, ch, key: str, pipeline: dict):
-    """Download and process a single OTLP JSON file from S3."""
-    log.info("[%s] Processing: %s", pipeline["name"], key)
+# ── File processing with concurrent downloads ──────────────────
 
+def download_and_parse(s3, key: str, unpack_fn) -> tuple[str, list[dict]]:
+    """Download a single S3 file and parse it. Returns (key, rows)."""
     response = s3.get_object(Bucket=config.S3_BUCKET, Key=key)
     raw = response["Body"].read().decode("utf-8")
-
-    rows = pipeline["unpack_fn"](raw)
-    insert_rows(ch, pipeline["ch_table"], pipeline["columns"], rows)
-    record_watermark(ch, pipeline["watermark_table"], key, "done", len(rows))
-
-    log.info("[%s]   → %d %s inserted", pipeline["name"], len(rows), pipeline["row_label"])
+    rows = unpack_fn(raw)
+    return key, rows
 
 
-def poll_pipeline(s3, ch, pipeline: dict):
-    """Poll a single signal pipeline for new files."""
-    processed = get_processed_files(ch, pipeline["watermark_table"])
-    all_files = list_s3_files(s3, pipeline["s3_prefix"])
-    new_files = [f for f in all_files if f not in processed]
+def process_files_concurrent(s3, ch, new_files: list[str], pipeline: dict):
+    """Process a batch of new files using concurrent downloads."""
+    total_rows = 0
+    with ThreadPoolExecutor(max_workers=config.MAX_FILE_WORKERS) as executor:
+        futures = {
+            executor.submit(download_and_parse, s3, key, pipeline["unpack_fn"]): key
+            for key in sorted(new_files)
+        }
 
-    if new_files:
-        log.info("[%s] Found %d new files (of %d total)", pipeline["name"], len(new_files), len(all_files))
+        for future in as_completed(futures):
+            key = futures[future]
+            try:
+                _, rows = future.result()
+                insert_rows(ch, pipeline["ch_table"], pipeline["columns"], rows)
+                record_watermark(ch, pipeline["watermark_table"], key, "done", len(rows))
+                total_rows += len(rows)
+                log.info("[%s]   → %d %s from %s", pipeline["name"], len(rows), pipeline["row_label"], key)
+            except Exception as e:
+                log.error("[%s] Failed to process %s: %s", pipeline["name"], key, e, exc_info=True)
+                record_watermark(ch, pipeline["watermark_table"], key, "failed", 0, str(e))
 
-    for key in sorted(new_files):
+    return total_rows
+
+
+def signal_loop(pipeline: dict):
+    """Continuous polling loop for a single signal type. Runs in its own thread."""
+    name = pipeline["name"]
+    log.info("[%s] Signal thread starting", name)
+
+    # Each thread gets its own S3 and CH clients (not thread-safe to share)
+    s3 = get_s3_client()
+    ch = get_ch_client()
+
+    while True:
         try:
-            process_file(s3, ch, key, pipeline)
+            processed = get_processed_files(ch, pipeline["watermark_table"])
+            all_files = list_s3_files(s3, pipeline["s3_prefix"])
+            new_files = [f for f in all_files if f not in processed]
+
+            if new_files:
+                log.info("[%s] Found %d new files (of %d total)", name, len(new_files), len(all_files))
+                total = process_files_concurrent(s3, ch, new_files, pipeline)
+                log.info("[%s] Batch complete: %d total %s inserted", name, total, pipeline["row_label"])
+                time.sleep(config.POLL_INTERVAL_BUSY)
+            else:
+                time.sleep(config.POLL_INTERVAL_IDLE)
+
         except Exception as e:
-            log.error("[%s] Failed to process %s: %s", pipeline["name"], key, e, exc_info=True)
-            record_watermark(ch, pipeline["watermark_table"], key, "failed", 0, str(e))
+            log.error("[%s] Poll cycle error: %s", name, e, exc_info=True)
+            time.sleep(config.POLL_INTERVAL_IDLE)
 
 
 def run():
-    log.info("S3 Loader starting")
+    log.info("S3 Loader starting (concurrent mode)")
     log.info("  S3 endpoint: %s", config.S3_ENDPOINT)
     log.info("  S3 bucket:   %s", config.S3_BUCKET)
     log.info("  Prefixes:    traces=%s  metrics=%s  logs=%s",
              config.S3_TRACES_PREFIX, config.S3_METRICS_PREFIX, config.S3_LOGS_PREFIX)
     log.info("  CH host:     %s", config.CH_HOST)
-    log.info("  Poll interval: %ds", config.POLL_INTERVAL)
+    log.info("  Batch size:  %d rows/INSERT", config.BATCH_SIZE)
+    log.info("  File workers: %d per signal", config.MAX_FILE_WORKERS)
+    log.info("  Poll: %.1fs busy, %.1fs idle", config.POLL_INTERVAL_BUSY, config.POLL_INTERVAL_IDLE)
 
-    s3 = get_s3_client()
-    ch = get_ch_client()
+    threads = []
+    for pipeline in SIGNAL_PIPELINES:
+        t = threading.Thread(target=signal_loop, args=(pipeline,), daemon=True, name=f"signal-{pipeline['name']}")
+        t.start()
+        threads.append(t)
+        log.info("Started signal thread: %s", pipeline["name"])
 
-    while True:
-        for pipeline in SIGNAL_PIPELINES:
-            try:
-                poll_pipeline(s3, ch, pipeline)
-            except Exception as e:
-                log.error("[%s] Poll cycle error: %s", pipeline["name"], e, exc_info=True)
-
-        time.sleep(config.POLL_INTERVAL)
+    # Keep main thread alive
+    for t in threads:
+        t.join()
 
 
 if __name__ == "__main__":

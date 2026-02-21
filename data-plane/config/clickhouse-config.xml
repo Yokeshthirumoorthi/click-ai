@@ -7,9 +7,11 @@
     <!-- Total server memory limit: 100GB -->
     <max_server_memory_usage>107374182400</max_server_memory_usage>
 
-    <!-- Background merge threads (for MergeTree inserts) -->
-    <background_pool_size>16</background_pool_size>
-    <background_merges_mutations_concurrency_ratio>2</background_merges_mutations_concurrency_ratio>
+    <!-- Background merge threads (for MergeTree inserts + bulk loading) -->
+    <background_pool_size>32</background_pool_size>
+    <background_merges_mutations_concurrency_ratio>4</background_merges_mutations_concurrency_ratio>
+    <background_schedule_pool_size>128</background_schedule_pool_size>
+    <background_common_pool_size>16</background_common_pool_size>
 
     <!-- Compression: LZ4 is fast, zstd saves more space -->
     <compression>

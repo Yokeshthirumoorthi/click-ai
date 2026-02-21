@@ -96,6 +96,51 @@ platform:
 platform-logs:
     {{compose}} --profile clickhouse-local --profile agent logs -f platform
 
+# ─── Load Generator (OTLP pipeline) ─────────────────────────────
+
+sim_compose := "cd simulation && docker compose"
+
+# Generate 10k span smoke test via OTEL pipeline
+gen-xs:
+    {{sim_compose}} --profile load-test run --rm load-generator --tier xs --otel-endpoint otel-collector:4317
+
+# Generate 100k spans via OTEL pipeline
+gen-s:
+    {{sim_compose}} --profile load-test run --rm load-generator --tier s --otel-endpoint otel-collector:4317
+
+# Generate 1M spans via OTEL pipeline
+gen-m:
+    {{sim_compose}} --profile load-test run --rm load-generator --tier m --otel-endpoint otel-collector:4317
+
+# Generate 10M spans via OTEL pipeline
+gen-l:
+    {{sim_compose}} --profile load-test run --rm load-generator --tier l --otel-endpoint otel-collector:4317
+
+# Generate 100M spans via OTEL pipeline
+gen-xl:
+    {{sim_compose}} --profile load-test run --rm load-generator --tier xl --otel-endpoint otel-collector:4317
+
+# Show current row counts and estimated data volume
+gen-status:
+    @echo "=== Row Counts ==="
+    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
+        --query "SELECT 'otel_traces' AS tbl, count() AS rows, formatReadableSize(sum(data_compressed_bytes)) AS compressed, formatReadableSize(sum(data_uncompressed_bytes)) AS uncompressed FROM system.parts WHERE database = 'otel' AND table = 'otel_traces' AND active UNION ALL SELECT 'otel_logs', count(), formatReadableSize(sum(data_compressed_bytes)), formatReadableSize(sum(data_uncompressed_bytes)) FROM system.parts WHERE database = 'otel' AND table = 'otel_logs' AND active UNION ALL SELECT 'otel_metrics', count(), formatReadableSize(sum(data_compressed_bytes)), formatReadableSize(sum(data_uncompressed_bytes)) FROM system.parts WHERE database = 'otel' AND table = 'otel_metrics' AND active FORMAT PrettyCompact"
+
+# Truncate all tables for a fresh start
+gen-clean:
+    @echo "Truncating all otel tables..."
+    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
+        --query "TRUNCATE TABLE otel.otel_traces"
+    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
+        --query "TRUNCATE TABLE otel.otel_logs"
+    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
+        --query "TRUNCATE TABLE otel.otel_metrics"
+    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
+        --query "TRUNCATE TABLE otel.otel_traces_enriched"
+    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
+        --query "TRUNCATE TABLE otel.otel_traces_trace_id_ts"
+    @echo "Done — all tables truncated"
+
 # ─── Utilities ────────────────────────────────────────────────────
 
 # List files in the MinIO traces bucket (all signal prefixes)

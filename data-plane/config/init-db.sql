@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS otel.otel_traces (
 ) ENGINE = MergeTree()
 PARTITION BY toDate(Timestamp)
 ORDER BY (ServiceName, SpanName, toDateTime(Timestamp))
-TTL toDateTime(Timestamp) + INTERVAL 72 HOUR
+TTL toDateTime(Timestamp) + INTERVAL 30 DAY
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 
 -- ── Trace ID → Timestamp lookup ─────────────────────────────
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS otel.otel_traces_trace_id_ts (
 ) ENGINE = MergeTree()
 PARTITION BY toDate(Start)
 ORDER BY (TraceId, Start)
-TTL Start + INTERVAL 72 HOUR
+TTL Start + INTERVAL 30 DAY
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel.otel_traces_trace_id_ts_mv
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS otel.otel_logs (
 ) ENGINE = MergeTree()
 PARTITION BY toDate(Timestamp)
 ORDER BY (ServiceName, SeverityText, toDateTime(Timestamp))
-TTL toDateTime(Timestamp) + INTERVAL 72 HOUR
+TTL toDateTime(Timestamp) + INTERVAL 30 DAY
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 
 -- ── otel_metrics ─────────────────────────────────────────────
@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS otel.otel_metrics (
 ) ENGINE = MergeTree()
 PARTITION BY toDate(Timestamp)
 ORDER BY (ServiceName, MetricName, toDateTime(Timestamp))
-TTL toDateTime(Timestamp) + INTERVAL 72 HOUR
+TTL toDateTime(Timestamp) + INTERVAL 30 DAY
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 
 -- ── Enriched traces (with embeddings) ─────────────────────────
@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS otel.otel_traces_enriched (
 ) ENGINE = MergeTree()
 PARTITION BY toDate(Timestamp)
 ORDER BY (ServiceName, SpanName, toDateTime(Timestamp))
-TTL toDateTime(Timestamp) + INTERVAL 72 HOUR
+TTL toDateTime(Timestamp) + INTERVAL 30 DAY
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 
 -- ── Loader file watermark ─────────────────────────────────────
