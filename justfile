@@ -85,11 +85,16 @@ bench:
     @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
         --query "SELECT 'otel_traces' AS tbl, count() AS rows FROM otel.otel_traces UNION ALL SELECT 'otel_logs', count() FROM otel.otel_logs UNION ALL SELECT 'otel_metrics', count() FROM otel.otel_metrics UNION ALL SELECT 'otel_traces_enriched', count() FROM otel.otel_traces_enriched UNION ALL SELECT 'loader_watermark', count() FROM otel.loader_file_watermark FINAL"
 
-# ─── Agent ────────────────────────────────────────────────────────
+# ─── Analysis Platform ──────────────────────────────────────────
 
-# Run the LLM trace agent (interactive)
-agent:
-    {{compose}} --profile agent run --rm agent
+# Open the analysis platform in a browser
+platform:
+    @echo "Starting platform at http://localhost:3000"
+    {{compose}} --profile clickhouse-local --profile agent up -d --build platform
+
+# Tail platform logs
+platform-logs:
+    {{compose}} --profile clickhouse-local --profile agent logs -f platform
 
 # ─── Utilities ────────────────────────────────────────────────────
 

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Click-AI — Sessions</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="topbar">
+        <span class="topbar-title">Click-AI</span>
+        <div class="topbar-actions">
+            <span id="user-display" style="font-size:0.8125rem;color:var(--text-muted);"></span>
+            <button class="btn btn-ghost btn-sm" onclick="logout()">Logout</button>
+        </div>
+    </div>
+
+    <div class="container-wide">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem;">
+            <div>
+                <h1>Analysis Sessions</h1>
+                <p class="subtitle">Create a session to pull production data into a local analytical sandbox</p>
+            </div>
+        </div>
+
+        <div class="card" style="margin-bottom:1.5rem;">
+            <h2>New Session</h2>
+            <div id="create-error" class="alert alert-error"></div>
+            <form id="create-form">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+                    <div class="form-group">
+                        <label for="start-time">Start Time</label>
+                        <input type="datetime-local" id="start-time" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="end-time">End Time</label>
+                        <input type="datetime-local" id="end-time" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="services">Services (hold Ctrl/Cmd to multi-select, leave empty for all)</label>
+                    <select id="services" multiple></select>
+                </div>
+                <div class="form-group">
+                    <label>Signal Types</label>
+                    <div style="display:flex;gap:1rem;margin-top:0.25rem;">
+                        <label style="display:flex;align-items:center;gap:0.375rem;color:var(--text);font-size:0.875rem;">
+                            <input type="checkbox" value="traces" checked> Traces
+                        </label>
+                        <label style="display:flex;align-items:center;gap:0.375rem;color:var(--text);font-size:0.875rem;">
+                            <input type="checkbox" value="logs" checked> Logs
+                        </label>
+                        <label style="display:flex;align-items:center;gap:0.375rem;color:var(--text);font-size:0.875rem;">
+                            <input type="checkbox" value="metrics" checked> Metrics
+                        </label>
+                    </div>
+                </div>
+                <div class="upload-zone" style="margin-bottom:1rem;">
+                    File upload coming soon — join CSV/Excel with production telemetry
+                </div>
+                <button type="submit" class="btn btn-primary" id="create-btn">Create Session</button>
+            </form>
+        </div>
+
+        <h2>Your Sessions</h2>
+        <div id="sessions-list" class="session-list">
+            <p style="color:var(--text-muted);font-size:0.875rem;">Loading sessions...</p>
+        </div>
+    </div>
+
+    <script src="/js/auth.js"></script>
+    <script src="/js/setup.js"></script>
+</body>
+</html>

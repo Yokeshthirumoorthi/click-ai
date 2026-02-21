@@ -1,20 +1,31 @@
 services:
 
-  # ─── LLM Agent ────────────────────────────────────────────────────
-  agent:
+  # ─── Analysis Platform ─────────────────────────────────────────
+  platform:
     build:
-      context: ./agent
-    container_name: agent
+      context: .
+    container_name: click-ai-platform
+    ports:
+      - "3000:8000"
     environment:
       CH_HOST: ${CH_HOST:-clickhouse}
+      CH_PORT: ${CH_PORT:-8123}
       CH_USER: ${CH_USER:-admin}
       CH_PASSWORD: ${CH_PASSWORD:-clickhouse123}
       CH_DATABASE: ${CH_DATABASE:-otel}
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      LLM_MODEL: ${LLM_MODEL:-anthropic/claude-sonnet-4}
+      AUTH_SECRET: ${AUTH_SECRET:-change-me-in-production}
+      AUTH_USERNAME: ${AUTH_USERNAME:-admin}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-admin}
+    volumes:
+      - session-data:/app/data/sessions
     depends_on:
       clickhouse:
         condition: service_healthy
     profiles:
       - agent
-    stdin_open: true
-    tty: true
+
+volumes:
+  session-data:
