@@ -13,7 +13,7 @@ from opentelemetry.proto.common.v1.common_pb2 import (
 )
 from opentelemetry.proto.resource.v1.resource_pb2 import Resource
 from opentelemetry.proto.trace.v1.trace_pb2 import (
-    Span, ScopeSpans, ResourceSpans, TracesData,
+    Span, Status, ScopeSpans, ResourceSpans, TracesData,
 )
 from opentelemetry.proto.logs.v1.logs_pb2 import (
     LogRecord, ScopeLogs, ResourceLogs, LogsData,
@@ -132,7 +132,7 @@ def _spans_to_proto(spans: list[dict]) -> ExportTraceServiceRequest:
                 start_time_unix_nano=start_ns,
                 end_time_unix_nano=end_ns,
                 attributes=_dict_to_kv(s.get("SpanAttributes", {})),
-                status=Span.Status(
+                status=Status(
                     code=STATUS_CODE_MAP.get(s["StatusCode"], 0),
                     message=s.get("StatusMessage", ""),
                 ),

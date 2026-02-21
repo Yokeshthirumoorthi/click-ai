@@ -322,7 +322,7 @@ def _inventory_reserve_spans(trace_id: str, parent_id: str, ts: datetime,
 
     root_status = "ERROR" if errored else "OK"
     root_msg = "SOLD OUT: No inventory remaining" if (not success) else \
-               (incident.get("error_message", "") if errored else "")
+               ((incident.get("error_message", "") if incident else "") if errored else "")
     spans.append(_make_span(trace_id, parent_id, "inventory-service: reserve_pair",
                             "inventory-service", "INTERNAL", ts, total_ns, root_status, region,
                             {"user.id": user["user_id"], "shoe.size": size,
@@ -388,7 +388,7 @@ def _payment_spans(trace_id: str, parent_id: str, ts: datetime,
                                     stripe_dur, "ERROR" if stripe_fail else "OK", region,
                                     {"payment.provider": "stripe", "payment.method": user["payment_method"],
                                      "payment.amount": f"{amount:.2f}", "payment.currency": "USD"},
-                                    status_message=incident.get("error_message", "Stripe API timeout") if stripe_fail else ""))
+                                    status_message=(incident.get("error_message", "Stripe API timeout") if incident else "Stripe API timeout") if stripe_fail else ""))
             total_ns += stripe_dur
 
             if stripe_fail:

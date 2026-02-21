@@ -81,28 +81,29 @@ platform-logs:
     {{compose}} --profile clickhouse-local --profile agent logs -f platform
 
 # ─── Load Generator (OTLP pipeline) ─────────────────────────────
+# Runs directly on the host, sends to the already-running OTEL collector on localhost:4317
 
-sim_compose := "cd simulation && docker compose"
+gen_dir := "simulation/load-generator"
 
 # Generate 10k span smoke test via OTEL pipeline
 gen-xs:
-    {{sim_compose}} --profile load-test run --rm load-generator --tier xs --otel-endpoint otel-collector:4317
+    cd {{gen_dir}} && python3 generate.py --tier xs --otel-endpoint localhost:4317
 
 # Generate 100k spans via OTEL pipeline
 gen-s:
-    {{sim_compose}} --profile load-test run --rm load-generator --tier s --otel-endpoint otel-collector:4317
+    cd {{gen_dir}} && python3 generate.py --tier s --otel-endpoint localhost:4317
 
 # Generate 1M spans via OTEL pipeline
 gen-m:
-    {{sim_compose}} --profile load-test run --rm load-generator --tier m --otel-endpoint otel-collector:4317
+    cd {{gen_dir}} && python3 generate.py --tier m --otel-endpoint localhost:4317
 
 # Generate 10M spans via OTEL pipeline
 gen-l:
-    {{sim_compose}} --profile load-test run --rm load-generator --tier l --otel-endpoint otel-collector:4317
+    cd {{gen_dir}} && python3 generate.py --tier l --otel-endpoint localhost:4317
 
 # Generate 100M spans via OTEL pipeline
 gen-xl:
-    {{sim_compose}} --profile load-test run --rm load-generator --tier xl --otel-endpoint otel-collector:4317
+    cd {{gen_dir}} && python3 generate.py --tier xl --otel-endpoint localhost:4317
 
 # Show current row counts and estimated data volume
 gen-status:
