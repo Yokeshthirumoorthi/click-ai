@@ -11,6 +11,13 @@ CH_DATABASE = os.getenv("CH_DATABASE", "otel")
 # Session data (local chDB storage)
 SESSION_DIR = Path(os.getenv("SESSION_DIR", "/app/data/sessions"))
 
+# S3 (backup transport between master CH and session droplets)
+S3_ENDPOINT = os.getenv("S3_ENDPOINT", "http://minio:9000")
+S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "minioadmin")
+S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "minioadmin")
+S3_BACKUP_BUCKET = os.getenv("S3_BACKUP_BUCKET", "ch-backups")
+S3_REGION = os.getenv("S3_REGION", "us-east-1")
+
 # OpenRouter LLM
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")

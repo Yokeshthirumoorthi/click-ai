@@ -1,92 +1,24 @@
-"""Session builder — ships parts from master ClickHouse, queries via chDB (embedded).
+"""Session builder — BACKUP TO S3 + download + ATTACH into chDB.
 
-Flow: FREEZE partitions on master → copy parts to local session dir → ATTACH via chDB.
-Each session gets its own directory for chDB isolation.
+Flow: BACKUP table on master CH → S3 → download parts to chDB detached/ → ATTACH.
+Works across separate machines — S3 is the only shared transport.
 """
 
+import json
 import logging
-import os
 import shutil
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
-import chdb
+import boto3
+from chdb import session as chdb_session
 import clickhouse_connect
 
 from . import config
 
 log = logging.getLogger(__name__)
 
-# Mount point for master CH data inside the platform container
-MASTER_CH_DATA = Path(os.getenv("MASTER_CH_DATA", "/master-ch-data"))
-
 TABLES = ["otel_traces", "otel_logs", "otel_metrics"]
-
-# Table DDL for session databases — must match master's partition/order keys exactly.
-_TABLE_DDL = {
-    "otel_traces": """
-        CREATE TABLE IF NOT EXISTS otel_traces (
-            Timestamp          DateTime64(9)                           CODEC(Delta, ZSTD(1)),
-            TraceId            String                                  CODEC(ZSTD(1)),
-            SpanId             String                                  CODEC(ZSTD(1)),
-            ParentSpanId       String                                  CODEC(ZSTD(1)),
-            TraceState         String                                  CODEC(ZSTD(1)),
-            SpanName           LowCardinality(String)                  CODEC(ZSTD(1)),
-            SpanKind           LowCardinality(String)                  CODEC(ZSTD(1)),
-            ServiceName        LowCardinality(String)                  CODEC(ZSTD(1)),
-            ResourceAttributes Map(LowCardinality(String), String)     CODEC(ZSTD(1)),
-            ScopeName          String                                  CODEC(ZSTD(1)),
-            ScopeVersion       String                                  CODEC(ZSTD(1)),
-            SpanAttributes     Map(LowCardinality(String), String)     CODEC(ZSTD(1)),
-            Duration           UInt64                                  CODEC(ZSTD(1)),
-            StatusCode         LowCardinality(String)                  CODEC(ZSTD(1)),
-            StatusMessage      String                                  CODEC(ZSTD(1)),
-            `Events.Timestamp`   Array(DateTime64(9))                  CODEC(ZSTD(1)),
-            `Events.Name`        Array(LowCardinality(String))         CODEC(ZSTD(1)),
-            `Events.Attributes`  Array(Map(LowCardinality(String), String)) CODEC(ZSTD(1)),
-            `Links.TraceId`      Array(String)                         CODEC(ZSTD(1)),
-            `Links.SpanId`       Array(String)                         CODEC(ZSTD(1)),
-            `Links.TraceState`   Array(String)                         CODEC(ZSTD(1)),
-            `Links.Attributes`   Array(Map(LowCardinality(String), String)) CODEC(ZSTD(1))
-        ) ENGINE = MergeTree()
-        PARTITION BY toDate(Timestamp)
-        ORDER BY (ServiceName, SpanName, toDateTime(Timestamp))
-        SETTINGS index_granularity = 8192
-    """,
-    "otel_logs": """
-        CREATE TABLE IF NOT EXISTS otel_logs (
-            Timestamp          DateTime64(9)                           CODEC(Delta, ZSTD(1)),
-            TraceId            String                                  CODEC(ZSTD(1)),
-            SpanId             String                                  CODEC(ZSTD(1)),
-            SeverityNumber     UInt8                                   CODEC(ZSTD(1)),
-            SeverityText       LowCardinality(String)                  CODEC(ZSTD(1)),
-            Body               String                                  CODEC(ZSTD(1)),
-            ServiceName        LowCardinality(String)                  CODEC(ZSTD(1)),
-            ResourceAttributes Map(LowCardinality(String), String)     CODEC(ZSTD(1)),
-            LogAttributes      Map(LowCardinality(String), String)     CODEC(ZSTD(1))
-        ) ENGINE = MergeTree()
-        PARTITION BY toDate(Timestamp)
-        ORDER BY (ServiceName, SeverityText, toDateTime(Timestamp))
-        SETTINGS index_granularity = 8192
-    """,
-    "otel_metrics": """
-        CREATE TABLE IF NOT EXISTS otel_metrics (
-            Timestamp          DateTime64(9)                           CODEC(Delta, ZSTD(1)),
-            MetricName         LowCardinality(String)                  CODEC(ZSTD(1)),
-            MetricDescription  String                                  CODEC(ZSTD(1)),
-            MetricUnit         String                                  CODEC(ZSTD(1)),
-            MetricType         LowCardinality(String)                  CODEC(ZSTD(1)),
-            Value              Float64                                 CODEC(ZSTD(1)),
-            ServiceName        LowCardinality(String)                  CODEC(ZSTD(1)),
-            ResourceAttributes Map(LowCardinality(String), String)     CODEC(ZSTD(1)),
-            MetricAttributes   Map(LowCardinality(String), String)     CODEC(ZSTD(1))
-        ) ENGINE = MergeTree()
-        PARTITION BY toDate(Timestamp)
-        ORDER BY (ServiceName, MetricName, toDateTime(Timestamp))
-        SETTINGS index_granularity = 8192
-    """,
-}
-
 
 def _master_client():
     return clickhouse_connect.get_client(
@@ -98,159 +30,135 @@ def _master_client():
     )
 
 
+def _s3_client():
+    return boto3.client(
+        "s3",
+        endpoint_url=config.S3_ENDPOINT,
+        aws_access_key_id=config.S3_ACCESS_KEY,
+        aws_secret_access_key=config.S3_SECRET_KEY,
+        region_name=config.S3_REGION,
+    )
+
+
 def _session_dir(session_id: str) -> Path:
     return config.SESSION_DIR / session_id
 
 
-def _chdb_session(session_id: str) -> chdb.Session:
+def _chdb_session(session_id: str) -> chdb_session.Session:
     path = str(_session_dir(session_id))
-    return chdb.Session(path)
+    return chdb_session.Session(path)
 
 
-def _date_range(start: datetime, end: datetime) -> list[str]:
-    """Return YYYYMMDD partition IDs covering the time range."""
-    d = start.date()
-    end_d = end.date()
-    dates = []
-    while d <= end_d:
-        dates.append(d.strftime("%Y%m%d"))
-        d += timedelta(days=1)
-    return dates
+# ── S3 backup path helpers ───────────────────────────────────────
+
+def _backup_s3_path(session_id: str, table: str) -> str:
+    """S3 URL for ClickHouse BACKUP/RESTORE S3() syntax."""
+    return (
+        f"{config.S3_ENDPOINT}/{config.S3_BACKUP_BUCKET}"
+        f"/{session_id}/{table}/"
+    )
 
 
-def _date_values(start: datetime, end: datetime) -> list[str]:
-    """Return YYYY-MM-DD date strings for FREEZE PARTITION."""
-    d = start.date()
-    end_d = end.date()
-    dates = []
-    while d <= end_d:
-        dates.append(d.isoformat())
-        d += timedelta(days=1)
-    return dates
+def _backup_s3_prefix(session_id: str, table: str) -> str:
+    """S3 key prefix for boto3 cleanup."""
+    return f"{session_id}/{table}/"
 
 
-# ── Schema setup (chDB) ─────────────────────────────────────────
+# ── BACKUP on master → RESTORE in chDB ──────────────────────────
 
-def _create_session_tables(session_id: str, signal_types: list[str]):
-    """Create tables in a chDB session."""
-    sess = _chdb_session(session_id)
-    table_map = {"traces": "otel_traces", "logs": "otel_logs", "metrics": "otel_metrics"}
-    for signal in signal_types:
-        table = table_map.get(signal)
-        if table and table in _TABLE_DDL:
-            sess.query(_TABLE_DDL[table])
-
-
-# ── FREEZE on master ─────────────────────────────────────────────
-
-def _freeze_partitions(ch, session_id: str, table: str, date_values: list[str]):
-    """Freeze date partitions on master CH. Creates hard-links in shadow/."""
-    backup_name = f"session_{session_id}"
-    for dt in date_values:
-        try:
-            ch.command(
-                f"ALTER TABLE otel.{table} FREEZE PARTITION '{dt}' "
-                f"WITH NAME '{backup_name}'"
-            )
-        except Exception as e:
-            log.debug("FREEZE %s partition %s: %s", table, dt, e)
-
-
-def _cleanup_shadow(session_id: str):
-    """Remove the shadow backup from master's data volume."""
-    shadow_dir = MASTER_CH_DATA / "shadow" / f"session_{session_id}"
-    if shadow_dir.exists():
-        shutil.rmtree(shadow_dir)
-        log.info("Cleaned up shadow backup session_%s", session_id)
-
-
-# ── Part discovery + copy ────────────────────────────────────────
-
-def _get_master_parts(ch, table: str, partition_ids: list[str]) -> list[dict]:
-    """Query system.parts on master for parts in the target partitions."""
+def _backup_table_to_s3(master, session_id: str, table: str, start: datetime, end: datetime) -> list[str]:
+    """Run BACKUP on master CH, writing parts to S3. Returns partition IDs."""
+    start_part = start.strftime("%Y%m%d")
+    end_part = end.strftime("%Y%m%d")
+    partitions = master.query(
+        "SELECT DISTINCT partition_id FROM system.parts "
+        f"WHERE database = 'otel' AND table = '{table}' AND active "
+        f"AND partition_id >= '{start_part}' AND partition_id <= '{end_part}'",
+    )
+    partition_ids = [row[0] for row in partitions.result_rows]
     if not partition_ids:
+        log.info("No partitions for %s in range %s–%s", table, start, end)
         return []
-    id_list = ", ".join(f"'{p}'" for p in partition_ids)
-    result = ch.query(
-        f"SELECT name, partition, path FROM system.parts "
-        f"WHERE database = 'otel' AND table = '{table}' "
-        f"AND active AND partition IN ({id_list})"
+
+    partition_list = ", ".join(f"'{p}'" for p in partition_ids)
+    s3_path = _backup_s3_path(session_id, table)
+
+    backup_sql = (
+        f"BACKUP TABLE otel.{table} "
+        f"PARTITIONS {partition_list} "
+        f"TO S3('{s3_path}', "
+        f"'{config.S3_ACCESS_KEY}', '{config.S3_SECRET_KEY}')"
     )
-    return [{"name": r[0], "partition": r[1], "path": r[2]} for r in result.result_rows]
+    log.info("BACKUP %s (%d partitions) → S3", table, len(partition_ids))
+    master.command(backup_sql)
+    log.info("BACKUP %s complete", table)
+    return partition_ids
 
 
-def _get_chdb_table_data_path(session_id: str, table: str) -> str:
-    """Get the filesystem data path for a table in chDB session."""
+def _restore_table_from_s3(session_id: str, table: str) -> int:
+    """RESTORE a table from S3 backup into chDB session. Returns row count."""
     sess = _chdb_session(session_id)
-    result = sess.query(
-        f"SELECT data_paths FROM system.tables "
-        f"WHERE database = 'default' AND name = '{table}'",
-        "JSON",
+    s3_path = _backup_s3_path(session_id, table)
+
+    restore_sql = (
+        f"RESTORE TABLE otel.{table} AS {table} "
+        f"FROM S3('{s3_path}', "
+        f"'{config.S3_ACCESS_KEY}', '{config.S3_SECRET_KEY}')"
     )
-    import json
-    parsed = json.loads(result.bytes())
-    rows = parsed.get("data", [])
-    if rows:
-        paths = rows[0].get("data_paths", [])
-        if paths:
-            return paths[0]
-    raise RuntimeError(f"Table {table} not found in chDB session {session_id}")
+    log.info("RESTORE %s from S3 into chDB", table)
+    sess.query(restore_sql)
+
+    result = sess.query(f"SELECT count() FROM {table}", "JSON")
+    data = json.loads(result.bytes())
+    row_count = int(data["data"][0]["count()"])
+    log.info("Table %s: %d rows in chDB session", table, row_count)
+    return row_count
 
 
-def _copy_parts(session_id: str, table: str, parts: list[dict], chdb_data_path: str) -> int:
-    """Copy frozen parts from master shadow to chDB session detached dir."""
-    if not parts:
+def _cleanup_s3_backup(s3, session_id: str, table: str):
+    """Delete backup files from S3 after successful RESTORE."""
+    prefix = _backup_s3_prefix(session_id, table)
+    paginator = s3.get_paginator("list_objects_v2")
+
+    objects = []
+    for page in paginator.paginate(Bucket=config.S3_BACKUP_BUCKET, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            objects.append({"Key": obj["Key"]})
+
+    if objects:
+        for i in range(0, len(objects), 1000):
+            batch = objects[i : i + 1000]
+            s3.delete_objects(
+                Bucket=config.S3_BACKUP_BUCKET,
+                Delete={"Objects": batch},
+            )
+        log.info("Cleaned up %d objects from S3 for %s/%s", len(objects), session_id, table)
+
+
+def _backup_and_restore(
+    master, s3, session_id: str, table: str, start: datetime, end: datetime,
+) -> int:
+    """Full flow: BACKUP on master → S3 → RESTORE in chDB."""
+    partition_ids = _backup_table_to_s3(master, session_id, table, start, end)
+    if not partition_ids:
         return 0
 
-    backup_name = f"session_{session_id}"
-    detached_dir = Path(chdb_data_path) / "detached"
-    detached_dir.mkdir(parents=True, exist_ok=True)
-
-    count = 0
-    for part in parts:
-        rel_path = part["path"]
-        if rel_path.startswith("/var/lib/clickhouse/"):
-            rel_path = rel_path[len("/var/lib/clickhouse/"):]
-        shadow_part = MASTER_CH_DATA / "shadow" / backup_name / rel_path
-
-        if not shadow_part.exists():
-            log.warning("Shadow part not found: %s", shadow_part)
-            continue
-
-        dest = detached_dir / part["name"]
-        if dest.exists():
-            shutil.rmtree(dest)
-        shutil.copytree(shadow_part, dest)
-        count += 1
-
-    log.info("Copied %d parts for %s to detached", count, table)
-    return count
-
-
-# ── ATTACH on chDB session ───────────────────────────────────────
-
-def _attach_parts(session_id: str, table: str, partition_ids: list[str]):
-    """Attach detached parts in chDB session."""
-    sess = _chdb_session(session_id)
-    for pid in partition_ids:
-        try:
-            sess.query(f"ALTER TABLE {table} ATTACH PARTITION ID '{pid}'")
-        except Exception as e:
-            log.debug("ATTACH %s partition %s: %s", table, pid, e)
+    try:
+        return _restore_table_from_s3(session_id, table)
+    finally:
+        _cleanup_s3_backup(s3, session_id, table)
 
 
 # ── Manifest ─────────────────────────────────────────────────────
 
 def _build_manifest(session_id: str) -> dict:
     """Build manifest from chDB session tables."""
-    import json as _json
-
     sess = _chdb_session(session_id)
     tables = {}
     for table_name in TABLES:
         try:
             count_result = sess.query(f"SELECT count() FROM {table_name}", "JSON")
-            count_data = _json.loads(count_result.bytes())
+            count_data = json.loads(count_result.bytes())
             count = int(count_data["data"][0]["count()"])
             if count == 0:
                 continue
@@ -261,10 +169,10 @@ def _build_manifest(session_id: str) -> dict:
                 f"ORDER BY position",
                 "JSON",
             )
-            cols_data = _json.loads(cols_result.bytes())
+            cols_data = json.loads(cols_result.bytes())
 
             sample_result = sess.query(f"SELECT * FROM {table_name} LIMIT 3", "JSON")
-            sample_data = _json.loads(sample_result.bytes())
+            sample_data = json.loads(sample_result.bytes())
             sample_rows = []
             for row in sample_data.get("data", [])[:3]:
                 sample_rows.append({k: str(v) for k, v in row.items()})
@@ -289,56 +197,29 @@ def build_session(
     start: datetime,
     end: datetime,
 ) -> dict:
-    """Build a session by shipping parts from master CH and loading via chDB."""
-    import json as _json
-
+    """Build a session by BACKUP TO S3 → download → ATTACH into chDB."""
     master = _master_client()
+    s3 = _s3_client()
 
     table_map = {"traces": "otel_traces", "logs": "otel_logs", "metrics": "otel_metrics"}
     tables_to_ship = [table_map[s] for s in signal_types if s in table_map]
 
-    date_vals = _date_values(start, end)
-    partition_ids = _date_range(start, end)
+    session_path = _session_dir(session_id)
 
     try:
-        # 1. Create session dir + tables via chDB
+        # 1. Create session dir
         log.info("Creating chDB session %s", session_id)
-        _session_dir(session_id).mkdir(parents=True, exist_ok=True)
-        _create_session_tables(session_id, signal_types)
+        session_path.mkdir(parents=True, exist_ok=True)
 
-        # 2. FREEZE partitions on master
-        for table in tables_to_ship:
-            log.info("Freezing %s for %d partitions...", table, len(date_vals))
-            _freeze_partitions(master, session_id, table, date_vals)
-
-        # 3. Copy parts from master shadow → chDB detached
-        for table in tables_to_ship:
-            parts = _get_master_parts(master, table, partition_ids)
-            if parts:
-                data_path = _get_chdb_table_data_path(session_id, table)
-                _copy_parts(session_id, table, parts, data_path)
-
-        # 4. ATTACH parts in chDB session
-        for table in tables_to_ship:
-            log.info("Attaching %s partitions...", table)
-            _attach_parts(session_id, table, partition_ids)
-
-        # 5. Cleanup shadow on master
-        _cleanup_shadow(session_id)
-
-        # 6. Collect counts
-        sess = _chdb_session(session_id)
+        # 2. BACKUP on master → S3 → RESTORE in chDB (creates tables automatically)
         counts = {}
-        for signal, table in table_map.items():
-            if signal in signal_types:
-                try:
-                    r = sess.query(f"SELECT count() FROM {table}", "JSON")
-                    data = _json.loads(r.bytes())
-                    counts[signal] = int(data["data"][0]["count()"])
-                except Exception:
-                    counts[signal] = 0
+        for table in tables_to_ship:
+            signal = [s for s, t in table_map.items() if t == table][0]
+            log.info("BACKUP+RESTORE %s ...", table)
+            row_count = _backup_and_restore(master, s3, session_id, table, start, end)
+            counts[signal] = row_count
 
-        # 7. Build manifest
+        # 3. Build manifest
         manifest = _build_manifest(session_id)
         return {"counts": counts, "manifest": manifest}
     finally:

@@ -9,4 +9,5 @@ dependencies = [
     "clickhouse-connect>=0.8.0",
     "chdb>=4.0.0",
     "python-multipart>=0.0.12",
+    "boto3>=1.35.0",
 ]

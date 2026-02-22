@@ -3,7 +3,7 @@
 import json
 import logging
 
-import chdb
+from chdb import session as chdb_session
 from fastapi import APIRouter, Depends, HTTPException
 from openai import OpenAI
 from pydantic import BaseModel
@@ -65,7 +65,7 @@ def _schema_from_manifest(manifest: dict) -> str:
 def _execute_sql(session_id: str, sql: str) -> tuple[list[str], list[dict]]:
     """Execute a read-only SQL query via chDB session."""
     session_path = str(config.SESSION_DIR / session_id)
-    sess = chdb.Session(session_path)
+    sess = chdb_session.Session(session_path)
     result = sess.query(sql, "JSON")
     parsed = json.loads(result.bytes())
     rows = parsed.get("data", [])
