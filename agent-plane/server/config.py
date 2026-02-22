@@ -1,17 +1,10 @@
 import os
 from pathlib import Path
 
-# ClickHouse (master / data-plane)
-CH_HOST = os.getenv("CH_HOST", "clickhouse")
-CH_PORT = int(os.getenv("CH_PORT", "8123"))
-CH_USER = os.getenv("CH_USER", "admin")
-CH_PASSWORD = os.getenv("CH_PASSWORD", "clickhouse123")
-CH_DATABASE = os.getenv("CH_DATABASE", "otel")
-
 # Session data (local chDB storage)
 SESSION_DIR = Path(os.getenv("SESSION_DIR", "/app/data/sessions"))
 
-# S3 (backup transport between master CH and session droplets)
+# S3 (backup source — master CH writes, droplets read)
 S3_ENDPOINT = os.getenv("S3_ENDPOINT", "http://minio:9000")
 S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "minioadmin")
 S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "minioadmin")

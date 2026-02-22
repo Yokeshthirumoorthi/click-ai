@@ -169,6 +169,16 @@ CREATE TABLE IF NOT EXISTS otel.metric_loader_file_watermark (
 ) ENGINE = ReplacingMergeTree(ProcessedAt)
 ORDER BY Filename;
 
+-- ── Backup watermark ────────────────────────────────────────
+-- Tracks which partitions have been backed up to S3.
+CREATE TABLE IF NOT EXISTS otel.backup_watermark (
+    TableName     LowCardinality(String),
+    PartitionId   String,
+    Status        LowCardinality(String),  -- 'done' or 'failed'
+    BackedUpAt    DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(BackedUpAt)
+ORDER BY (TableName, PartitionId);
+
 -- ── Enricher watermark — DISABLED for now ────────────────────
 -- TODO: re-enable when embedding enricher is ready
 -- CREATE TABLE IF NOT EXISTS otel.enricher_watermark (

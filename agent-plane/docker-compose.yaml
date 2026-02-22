@@ -8,11 +8,6 @@ services:
     ports:
       - "3000:8000"
     environment:
-      CH_HOST: ${CH_HOST:-clickhouse}
-      CH_PORT: ${CH_PORT:-8123}
-      CH_USER: ${CH_USER:-admin}
-      CH_PASSWORD: ${CH_PASSWORD:-clickhouse123}
-      CH_DATABASE: ${CH_DATABASE:-otel}
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       LLM_MODEL: ${LLM_MODEL:-anthropic/claude-sonnet-4}
@@ -26,9 +21,6 @@ services:
       S3_REGION: ${S3_REGION:-us-east-1}
     volumes:
       - session-data:/app/data/sessions
-    depends_on:
-      clickhouse:
-        condition: service_healthy
     profiles:
       - agent
 

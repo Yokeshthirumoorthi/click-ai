@@ -1,7 +1,7 @@
-"""Session builder — BACKUP TO S3 + download + ATTACH into chDB.
+"""Session builder — S3-only restore into chDB.
 
-Flow: BACKUP table on master CH → S3 → download parts to chDB detached/ → ATTACH.
-Works across separate machines — S3 is the only shared transport.
+Flow: Read partition inventory from S3 → RESTORE partitions into chDB.
+Droplets never connect to master CH — S3 is the only data source.
 """
 
 import json
@@ -12,22 +12,12 @@ from pathlib import Path
 
 import boto3
 from chdb import session as chdb_session
-import clickhouse_connect
 
 from . import config
 
 log = logging.getLogger(__name__)
 
 TABLES = ["otel_traces", "otel_logs", "otel_metrics"]
-
-def _master_client():
-    return clickhouse_connect.get_client(
-        host=config.CH_HOST,
-        port=config.CH_PORT,
-        username=config.CH_USER,
-        password=config.CH_PASSWORD,
-        database=config.CH_DATABASE,
-    )
 
 
 def _s3_client():
@@ -49,104 +39,58 @@ def _chdb_session(session_id: str) -> chdb_session.Session:
     return chdb_session.Session(path)
 
 
-# ── S3 backup path helpers ───────────────────────────────────────
+# ── S3 partition discovery ───────────────────────────────────────
 
-def _backup_s3_path(session_id: str, table: str) -> str:
-    """S3 URL for ClickHouse BACKUP/RESTORE S3() syntax."""
-    return (
-        f"{config.S3_ENDPOINT}/{config.S3_BACKUP_BUCKET}"
-        f"/{session_id}/{table}/"
-    )
+def _get_available_partitions(s3, table: str) -> list[str]:
+    """List available partition IDs for a table on S3 using delimiter listing."""
+    prefix = f"{table}/"
+    partitions = []
 
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(
+        Bucket=config.S3_BACKUP_BUCKET,
+        Prefix=prefix,
+        Delimiter="/",
+    ):
+        for cp in page.get("CommonPrefixes", []):
+            # cp["Prefix"] looks like "otel_traces/20260221/"
+            part_id = cp["Prefix"].rstrip("/").split("/")[-1]
+            partitions.append(part_id)
 
-def _backup_s3_prefix(session_id: str, table: str) -> str:
-    """S3 key prefix for boto3 cleanup."""
-    return f"{session_id}/{table}/"
-
-
-# ── BACKUP on master → RESTORE in chDB ──────────────────────────
-
-def _backup_table_to_s3(master, session_id: str, table: str, start: datetime, end: datetime) -> list[str]:
-    """Run BACKUP on master CH, writing parts to S3. Returns partition IDs."""
-    start_part = start.strftime("%Y%m%d")
-    end_part = end.strftime("%Y%m%d")
-    partitions = master.query(
-        "SELECT DISTINCT partition_id FROM system.parts "
-        f"WHERE database = 'otel' AND table = '{table}' AND active "
-        f"AND partition_id >= '{start_part}' AND partition_id <= '{end_part}'",
-    )
-    partition_ids = [row[0] for row in partitions.result_rows]
-    if not partition_ids:
-        log.info("No partitions for %s in range %s–%s", table, start, end)
-        return []
-
-    partition_list = ", ".join(f"'{p}'" for p in partition_ids)
-    s3_path = _backup_s3_path(session_id, table)
-
-    backup_sql = (
-        f"BACKUP TABLE otel.{table} "
-        f"PARTITIONS {partition_list} "
-        f"TO S3('{s3_path}', "
-        f"'{config.S3_ACCESS_KEY}', '{config.S3_SECRET_KEY}')"
-    )
-    log.info("BACKUP %s (%d partitions) → S3", table, len(partition_ids))
-    master.command(backup_sql)
-    log.info("BACKUP %s complete", table)
-    return partition_ids
+    return sorted(partitions)
 
 
-def _restore_table_from_s3(session_id: str, table: str) -> int:
-    """RESTORE a table from S3 backup into chDB session. Returns row count."""
+# ── S3 → chDB restore ───────────────────────────────────────────
+
+def _restore_partitions_from_s3(
+    session_id: str, table: str, partition_ids: list[str],
+) -> int:
+    """RESTORE partitions from S3 backup into chDB session. Returns row count."""
     sess = _chdb_session(session_id)
-    s3_path = _backup_s3_path(session_id, table)
+    restored = 0
 
-    restore_sql = (
-        f"RESTORE TABLE otel.{table} AS {table} "
-        f"FROM S3('{s3_path}', "
-        f"'{config.S3_ACCESS_KEY}', '{config.S3_SECRET_KEY}')"
-    )
-    log.info("RESTORE %s from S3 into chDB", table)
-    sess.query(restore_sql)
+    for part_id in partition_ids:
+        s3_path = (
+            f"{config.S3_ENDPOINT}/{config.S3_BACKUP_BUCKET}"
+            f"/{table}/{part_id}/"
+        )
+        restore_sql = (
+            f"RESTORE TABLE otel.{table} AS {table} "
+            f"FROM S3('{s3_path}', "
+            f"'{config.S3_ACCESS_KEY}', '{config.S3_SECRET_KEY}')"
+        )
+        log.info("RESTORE %s partition %s from S3", table, part_id)
+        sess.query(restore_sql)
+        restored += 1
+
+    if restored == 0:
+        return 0
 
     result = sess.query(f"SELECT count() FROM {table}", "JSON")
     data = json.loads(result.bytes())
     row_count = int(data["data"][0]["count()"])
-    log.info("Table %s: %d rows in chDB session", table, row_count)
+    log.info("Table %s: %d rows in chDB session (%d partitions)", table, row_count, restored)
     return row_count
-
-
-def _cleanup_s3_backup(s3, session_id: str, table: str):
-    """Delete backup files from S3 after successful RESTORE."""
-    prefix = _backup_s3_prefix(session_id, table)
-    paginator = s3.get_paginator("list_objects_v2")
-
-    objects = []
-    for page in paginator.paginate(Bucket=config.S3_BACKUP_BUCKET, Prefix=prefix):
-        for obj in page.get("Contents", []):
-            objects.append({"Key": obj["Key"]})
-
-    if objects:
-        for i in range(0, len(objects), 1000):
-            batch = objects[i : i + 1000]
-            s3.delete_objects(
-                Bucket=config.S3_BACKUP_BUCKET,
-                Delete={"Objects": batch},
-            )
-        log.info("Cleaned up %d objects from S3 for %s/%s", len(objects), session_id, table)
-
-
-def _backup_and_restore(
-    master, s3, session_id: str, table: str, start: datetime, end: datetime,
-) -> int:
-    """Full flow: BACKUP on master → S3 → RESTORE in chDB."""
-    partition_ids = _backup_table_to_s3(master, session_id, table, start, end)
-    if not partition_ids:
-        return 0
-
-    try:
-        return _restore_table_from_s3(session_id, table)
-    finally:
-        _cleanup_s3_backup(s3, session_id, table)
 
 
 # ── Manifest ─────────────────────────────────────────────────────
@@ -197,8 +141,7 @@ def build_session(
     start: datetime,
     end: datetime,
 ) -> dict:
-    """Build a session by BACKUP TO S3 → download → ATTACH into chDB."""
-    master = _master_client()
+    """Build a session by restoring partitions from S3 into chDB."""
     s3 = _s3_client()
 
     table_map = {"traces": "otel_traces", "logs": "otel_logs", "metrics": "otel_metrics"}
@@ -206,24 +149,34 @@ def build_session(
 
     session_path = _session_dir(session_id)
 
-    try:
-        # 1. Create session dir
-        log.info("Creating chDB session %s", session_id)
-        session_path.mkdir(parents=True, exist_ok=True)
+    # Compute date range partition IDs
+    start_part = start.strftime("%Y%m%d")
+    end_part = end.strftime("%Y%m%d")
 
-        # 2. BACKUP on master → S3 → RESTORE in chDB (creates tables automatically)
-        counts = {}
-        for table in tables_to_ship:
-            signal = [s for s, t in table_map.items() if t == table][0]
-            log.info("BACKUP+RESTORE %s ...", table)
-            row_count = _backup_and_restore(master, s3, session_id, table, start, end)
-            counts[signal] = row_count
+    # 1. Create session dir
+    log.info("Creating chDB session %s", session_id)
+    session_path.mkdir(parents=True, exist_ok=True)
 
-        # 3. Build manifest
-        manifest = _build_manifest(session_id)
-        return {"counts": counts, "manifest": manifest}
-    finally:
-        master.close()
+    # 2. For each table: list S3 partitions, filter to date range, RESTORE
+    counts = {}
+    for table in tables_to_ship:
+        signal = [s for s, t in table_map.items() if t == table][0]
+
+        available = _get_available_partitions(s3, table)
+        in_range = [p for p in available if start_part <= p <= end_part]
+
+        if not in_range:
+            log.info("No S3 partitions for %s in range %s–%s", table, start_part, end_part)
+            counts[signal] = 0
+            continue
+
+        log.info("Restoring %s: %d partitions from S3", table, len(in_range))
+        row_count = _restore_partitions_from_s3(session_id, table, in_range)
+        counts[signal] = row_count
+
+    # 3. Build manifest
+    manifest = _build_manifest(session_id)
+    return {"counts": counts, "manifest": manifest}
 
 
 def drop_session(session_id: str):
@@ -235,11 +188,18 @@ def drop_session(session_id: str):
 
 
 def get_available_services() -> list[str]:
-    ch = _master_client()
+    """Read service list from metadata.json on S3."""
+    s3 = _s3_client()
     try:
-        result = ch.query(
-            "SELECT DISTINCT ServiceName FROM otel_traces ORDER BY ServiceName"
+        response = s3.get_object(
+            Bucket=config.S3_BACKUP_BUCKET,
+            Key="metadata.json",
         )
-        return [row[0] for row in result.result_rows]
-    finally:
-        ch.close()
+        metadata = json.loads(response["Body"].read())
+        return sorted(metadata.get("services", []))
+    except s3.exceptions.NoSuchKey:
+        log.warning("metadata.json not found on S3 — no backups yet?")
+        return []
+    except Exception as e:
+        log.warning("Failed to read metadata.json from S3: %s", e)
+        return []
