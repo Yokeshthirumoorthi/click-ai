@@ -1,9 +1,9 @@
-"""C9: Analysis engine — LLM generates DuckDB SQL, executes against session."""
+"""Analysis engine — LLM generates ClickHouse SQL, executes via chDB (embedded)."""
 
 import json
 import logging
 
-import duckdb
+from chdb import session as chdb_session
 from fastapi import APIRouter, Depends, HTTPException
 from openai import OpenAI
 from pydantic import BaseModel
@@ -17,18 +17,27 @@ from .vector_search import search as vector_search
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/sessions", tags=["analysis"])
 
-SYSTEM_PROMPT = """You are a data analyst working with a DuckDB database containing OpenTelemetry observability data.
+SYSTEM_PROMPT = """You are a data analyst working with a ClickHouse database containing OpenTelemetry observability data.
 
-Given the user's question and the database schema below, generate a DuckDB SQL query to answer it.
+Given the user's question and the database schema below, generate a ClickHouse SQL query to answer it.
 
 RULES:
 - Return ONLY a JSON object with keys "sql" and "explanation"
-- "sql" is the DuckDB SQL query string
+- "sql" is the ClickHouse SQL query string
 - "explanation" is a brief description of what the query does
-- Use DuckDB SQL syntax (not ClickHouse)
-- Timestamps are stored as VARCHAR strings — use TRY_CAST or string comparisons
-- Duration is in nanoseconds (divide by 1000000 for milliseconds)
-- SpanAttributes and ResourceAttributes are VARCHAR containing map-like strings from ClickHouse
+- Use ClickHouse SQL syntax
+- Use the `default` database — qualify tables as `default`.table_name
+- Timestamps are DateTime64(9) — use toDateTime(), toDate(), formatDateTime() etc.
+- Duration is UInt64 in nanoseconds (divide by 1000000 for milliseconds)
+- SpanAttributes and ResourceAttributes are Map(LowCardinality(String), String)
+  - Access keys: SpanAttributes['key_name']
+  - List all keys: mapKeys(SpanAttributes)
+  - List all values: mapValues(SpanAttributes)
+  - Check if key exists: mapContains(SpanAttributes, 'key_name')
+- LogAttributes is also a Map column — same access pattern
+- MetricAttributes is also a Map column — same access pattern
+- For string matching use: like, notLike, match (regex), extract
+- For aggregation: use ClickHouse functions (quantile, uniq, groupArray, etc.)
 - Do NOT use any DML statements (INSERT, UPDATE, DELETE, DROP, etc.)
 - Keep queries efficient — use LIMIT when exploring
 
@@ -53,15 +62,15 @@ def _schema_from_manifest(manifest: dict) -> str:
     return "\n".join(parts)
 
 
-def _execute_sql(db_path: str, sql: str) -> tuple[list[str], list[dict]]:
-    con = duckdb.connect(db_path, read_only=True)
-    try:
-        result = con.execute(sql)
-        columns = [desc[0] for desc in result.description]
-        rows = [dict(zip(columns, row)) for row in result.fetchall()]
-        return columns, rows
-    finally:
-        con.close()
+def _execute_sql(session_id: str, sql: str) -> tuple[list[str], list[dict]]:
+    """Execute a read-only SQL query via chDB session."""
+    session_path = str(config.SESSION_DIR / session_id)
+    sess = chdb_session.Session(session_path)
+    result = sess.query(sql, "JSON")
+    parsed = json.loads(result.bytes())
+    rows = parsed.get("data", [])
+    columns = list(rows[0].keys()) if rows else []
+    return columns, rows
 
 
 class AskRequest(BaseModel):
@@ -134,10 +143,9 @@ def ask(
     if any(sql_upper.startswith(kw) for kw in ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "TRUNCATE"]):
         raise HTTPException(400, "Write operations are not allowed")
 
-    # Execute against session DuckDB
-    db_path = str(config.SESSION_DIR / f"{session_id}.duckdb")
+    # Execute via chDB
     try:
-        columns, rows = _execute_sql(db_path, sql)
+        columns, rows = _execute_sql(session_id, sql)
     except Exception as e:
         raise HTTPException(400, f"SQL execution failed: {e}")
 

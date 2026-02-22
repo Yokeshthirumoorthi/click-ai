@@ -2,7 +2,7 @@ services:
 
   # ─── ClickHouse ───────────────────────────────────────────────────
   clickhouse:
-    image: clickhouse/clickhouse-server:latest
+    image: clickhouse/clickhouse-server:25.8
     container_name: clickhouse
     restart: unless-stopped
     profiles:

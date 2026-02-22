@@ -1,6 +1,5 @@
-"""C5: Session manager — CRUD for analysis sessions and their DuckDB files."""
+"""Session manager — CRUD for analysis sessions backed by chDB (embedded ClickHouse)."""
 
-import json
 import logging
 import uuid
 from datetime import datetime
@@ -8,9 +7,8 @@ from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
-from . import config
 from .auth import get_current_user
-from .session_builder import build_session, get_available_services
+from .session_builder import build_session, drop_session, get_available_services
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -40,10 +38,9 @@ class SessionInfo(BaseModel):
 
 def _run_build(session_id: str, req: CreateSessionRequest):
     session = _sessions[session_id]
-    db_path = config.SESSION_DIR / f"{session_id}.duckdb"
     try:
         result = build_session(
-            db_path=db_path,
+            session_id=session_id,
             services=req.services,
             signal_types=req.signal_types,
             start=req.start_time,
@@ -114,10 +111,12 @@ def delete_session(session_id: str, user: str = Depends(get_current_user)):
     session = _sessions.get(session_id)
     if not session or session["user"] != user:
         raise HTTPException(404, "Session not found")
-    db_path = config.SESSION_DIR / f"{session_id}.duckdb"
-    db_path.unlink(missing_ok=True)
-    # DuckDB may create .wal file
-    wal_path = db_path.with_suffix(".duckdb.wal")
-    wal_path.unlink(missing_ok=True)
+
+    # Remove the session's chDB directory
+    try:
+        drop_session(session_id)
+    except Exception as e:
+        log.warning("Failed to drop session DB for %s: %s", session_id, e)
+
     del _sessions[session_id]
     return {"status": "deleted"}
