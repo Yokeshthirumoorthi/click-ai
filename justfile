@@ -36,21 +36,7 @@ up-agent:
 down-agent:
     cd agent-plane && docker compose down
 
-# ─── Simulation ─────────────────────────────────────────────────────
-
-# Start the event generator
-start-sim:
-    {{compose}} --profile clickhouse-local start event-generator
-
-# Stop the event generator
-stop-sim:
-    {{compose}} --profile clickhouse-local stop event-generator
-
 # ─── Logs ─────────────────────────────────────────────────────────
-
-# Tail event generator logs
-logs:
-    {{compose}} logs -f event-generator
 
 # Tail s3-loader logs
 loader-logs:
@@ -80,53 +66,3 @@ platform:
 platform-logs:
     {{compose}} --profile clickhouse-local --profile agent logs -f platform
 
-# ─── Load Generator (OTLP pipeline) ─────────────────────────────
-# Runs directly on the host, sends to the already-running OTEL collector on localhost:4317
-
-gen_dir := "simulation/load-generator"
-
-# Generate 10k span smoke test via OTEL pipeline
-gen-xs:
-    cd {{gen_dir}} && python3 generate.py --tier xs --otel-endpoint localhost:4317
-
-# Generate 100k spans via OTEL pipeline
-gen-s:
-    cd {{gen_dir}} && python3 generate.py --tier s --otel-endpoint localhost:4317
-
-# Generate 1M spans via OTEL pipeline
-gen-m:
-    cd {{gen_dir}} && python3 generate.py --tier m --otel-endpoint localhost:4317
-
-# Generate 10M spans via OTEL pipeline
-gen-l:
-    cd {{gen_dir}} && python3 generate.py --tier l --otel-endpoint localhost:4317
-
-# Generate 100M spans via OTEL pipeline
-gen-xl:
-    cd {{gen_dir}} && python3 generate.py --tier xl --otel-endpoint localhost:4317
-
-# Show current row counts and estimated data volume
-gen-status:
-    @echo "=== Row Counts ==="
-    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
-        --query "SELECT 'otel_traces' AS tbl, count() AS rows, formatReadableSize(sum(data_compressed_bytes)) AS compressed, formatReadableSize(sum(data_uncompressed_bytes)) AS uncompressed FROM system.parts WHERE database = 'otel' AND table = 'otel_traces' AND active UNION ALL SELECT 'otel_logs', count(), formatReadableSize(sum(data_compressed_bytes)), formatReadableSize(sum(data_uncompressed_bytes)) FROM system.parts WHERE database = 'otel' AND table = 'otel_logs' AND active UNION ALL SELECT 'otel_metrics', count(), formatReadableSize(sum(data_compressed_bytes)), formatReadableSize(sum(data_uncompressed_bytes)) FROM system.parts WHERE database = 'otel' AND table = 'otel_metrics' AND active FORMAT PrettyCompact"
-
-# Truncate all tables for a fresh start
-gen-clean:
-    @echo "Truncating all otel tables..."
-    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
-        --query "TRUNCATE TABLE otel.otel_traces"
-    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
-        --query "TRUNCATE TABLE otel.otel_logs"
-    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
-        --query "TRUNCATE TABLE otel.otel_metrics"
-    @docker exec clickhouse clickhouse-client --user admin --password clickhouse123 \
-        --query "TRUNCATE TABLE otel.otel_traces_trace_id_ts"
-    @echo "Done — all tables truncated"
-
-# ─── Utilities ────────────────────────────────────────────────────
-
-# List files in the MinIO traces bucket (all signal prefixes)
-minio-ls:
-    docker run --rm --network=click-ai_default --entrypoint /bin/sh minio/mc -c \
-        "mc alias set local http://minio:9000 minioadmin minioadmin > /dev/null 2>&1 && echo '=== traces ===' && mc ls --recursive local/traces/incoming/ && echo '=== metrics ===' && mc ls --recursive local/traces/metrics/ && echo '=== logs ===' && mc ls --recursive local/traces/logs/"

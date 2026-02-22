@@ -43,11 +43,6 @@ click-ai/
 │   ├── agent/
 │   └── onboarding-api/        # future placeholder
 │
-├── simulation/          # Dev only — mimics a customer
-│   ├── docker-compose.yaml    # minio, otel-collector, event-generator
-│   ├── event-generator/
-│   └── config/                # OTEL collector config
-│
 ├── docker-compose.dev.yaml    # Local dev overlay: wires all zones together
 ├── justfile
 ├── .env.example
@@ -60,7 +55,7 @@ click-ai/
 | `data-plane/` | clickhouse, mongodb, hyperdx | Storage + observability UI |
 | `worker/` | s3-loader, embedding-enricher | GPU workloads: S3 polling + embeddings |
 | `agent-plane/` | agent | LLM trace analysis (scalable) |
-| `simulation/` | minio, otel-collector, event-generator | Dev-only customer simulation |
+| [snkrs-simulator](../snkrs-simulator) | minio, otel-collector, event-generator | Separate repo — traffic simulator |
 
 ## Prerequisites
 
@@ -72,15 +67,15 @@ click-ai/
 
 ```bash
 just up      # start all services (all zones wired together)
-just logs    # tail the simulator output
 ```
 
 Open http://localhost:8080 to see traces in HyperDX.
 
+> **Note:** The traffic simulator (minio, otel-collector, event-generator) now lives in a separate repo: [snkrs-simulator](../snkrs-simulator). Start it first to feed telemetry into the pipeline.
+
 ### Verify the pipeline
 
 ```bash
-just minio-ls            # OTLP JSON files appearing in S3
 just loader-status       # files being processed by the loader
 just bench               # row counts in ClickHouse
 just enrichment-status   # embeddings being computed
@@ -107,13 +102,11 @@ Ask questions like:
 | `just up-data` | Start data-plane only (prod) |
 | `just up-worker` | Start worker only (prod) |
 | `just up-agent` | Start agent-plane only (prod) |
-| `just logs` | Tail event generator logs |
 | `just loader-logs` | Tail s3-loader logs |
 | `just enricher-logs` | Tail embedding-enricher logs |
 | `just loader-status` | Show processed/failed file counts |
 | `just enrichment-status` | Show enriched row count + watermark |
 | `just bench` | Row counts across all tables |
-| `just minio-ls` | List files in the MinIO traces bucket |
 | `just agent` | Run the LLM trace agent (interactive) |
 
 ## What's Running
@@ -123,24 +116,9 @@ Ask questions like:
 | clickhouse | Column-store DB for all telemetry data | localhost:8123/9000 | data-plane |
 | mongodb | HyperDX metadata storage | — | data-plane |
 | hyperdx | HyperDX UI + API | localhost:8080 | data-plane |
-| minio | S3-compatible storage (simulates customer) | localhost:9002/9001 | simulation |
-| otel-collector | Receives, batches, exports to S3 | localhost:4317/4318 | simulation |
-| event-generator | SNKRS drop simulator | — | simulation |
 | s3-loader | Reads S3 → inserts into ClickHouse | — | worker |
 | embedding-enricher | Computes vector embeddings for traces | — | worker |
 | agent | LLM trace analysis CLI | — | agent-plane |
-
-## The Drop Simulation
-
-The event generator cycles through three phases, simulating a real SNKRS release:
-
-| Phase | Duration | Workers | What happens |
-|-------|----------|---------|-------------|
-| PRE_DROP | 60s | 5 | Calm browsing, account checks, feed loads |
-| DROP_LIVE | 90s | 40 | Draw entries, checkouts, inventory race |
-| POST_DROP | 60s | 8 | Cooldown, order checks, notifications |
-
-After each cycle the inventory resets and a new drop begins.
 
 ## Cleanup
 

@@ -2,4 +2,3 @@ include:
   - data-plane/docker-compose.yaml
   - worker/docker-compose.yaml
   - agent-plane/docker-compose.yaml
-  - simulation/docker-compose.yaml
